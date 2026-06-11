@@ -1,9 +1,6 @@
 from django.conf import settings
-from django.core import mail
 from django.core.mail import send_mail
-from django.core.cache import caches
-from django.core.exceptions import ValidationError
-from django.http import JsonResponse, FileResponse, Http404, HttpResponse
+from django.http import HttpResponse
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from .models import *
@@ -11,7 +8,6 @@ from .models import *
 import csv
 from io import StringIO
 import json
-import os
 import random
 import requests
 import string
