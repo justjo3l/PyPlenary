@@ -1,0 +1,14 @@
+{
+  "builds": [
+    {
+      "src": "pyplenary/pyplenary/wsgi.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "pyplenary/pyplenary/wsgi.py"
+    }
+  ]
+}
