@@ -382,7 +382,7 @@ def agenda(request):
     cache1 = caches['default']
     cached_agenda = cache1.get('agenda')
     if cached_agenda is None or request.GET.get('refresh', '0') == '1':
-        cached_agenda = yaml.load(requests.get(settings.PYPLENARY_AGENDA_URI).text)
+        cached_agenda = yaml.safe_load(requests.get(settings.PYPLENARY_AGENDA_URI).text)
         cache1.set('agenda', cached_agenda, timeout=None)
 
     agendaDates = [(key, cached_agenda[key]['date']) for key in cached_agenda.keys()]
@@ -407,7 +407,7 @@ def reports(request):
     cache1 = caches['default']
     cached_reports = cache1.get('reports')
     if cached_reports is None or request.GET.get('refresh', '0') == '1':
-        cached_reports = yaml.load(requests.get(settings.PYPLENARY_REPORTS_URI).text)
+        cached_reports = yaml.safe_load(requests.get(settings.PYPLENARY_REPORTS_URI).text)
         cache1.set('reports', cached_reports, timeout=None)
 
     return render(request, 'councilApp/councilInfo/reports.html', {'active_tab':'reports', 'active_tab2': 'info', 'allGroups':cached_reports})
@@ -416,7 +416,7 @@ def policies(request):
     cache1 = caches['default']
     cached_policies = cache1.get('policies')
     if cached_policies is None or request.GET.get('refresh', '0') == '1':
-        cached_policies = yaml.load(requests.get(settings.PYPLENARY_POLICIES_URI).text)
+        cached_policies = yaml.safe_load(requests.get(settings.PYPLENARY_POLICIES_URI).text)
         cache1.set('policies', cached_policies, timeout=None)
 
     return render(request, 'councilApp/councilInfo/policies.html', {'active_tab':'policies', 'active_tab2': 'info', 'allPolicies':cached_policies})
@@ -425,7 +425,7 @@ def socials(request):
     cache1 = caches['default']
     cached_socials = cache1.get('socials')
     if cached_socials is None or request.GET.get('refresh', '0') == '1':
-        cached_socials = yaml.load(requests.get(settings.PYPLENARY_SOCIALS_URI).text)
+        cached_socials = yaml.safe_load(requests.get(settings.PYPLENARY_SOCIALS_URI).text)
         cache1.set('socials', cached_socials, timeout=None)
 
     return render(request, 'councilApp/councilInfo/socials.html', {'active_tab':'socials', 'active_tab2': 'info', 'allCities':cached_socials})
@@ -434,7 +434,7 @@ def nodes(request):
     cache1 = caches['default']
     cached_nodes = cache1.get('nodes')
     if cached_nodes is None or request.GET.get('refresh', '0') == '1':
-        cached_nodes = yaml.load(requests.get(settings.PYPLENARY_NODES_URI).text)
+        cached_nodes = yaml.safe_load(requests.get(settings.PYPLENARY_NODES_URI).text)
         cache1.set('nodes', cached_nodes, timeout=None)
 
     return render(request, 'councilApp/councilInfo/nodes.html', {'active_tab':'nodes', 'active_tab2': 'info', 'allNodes':cached_nodes})

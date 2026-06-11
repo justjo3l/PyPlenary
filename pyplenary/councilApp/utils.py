@@ -72,7 +72,7 @@ def generateSpeakerListCSV(request):
     agendaIO = StringIO()
     writer = csv.writer(agendaIO)
     writer.writerow(['Day', 'Time', 'Item'])
-    cached_agenda = yaml.load(requests.get(settings.PYPLENARY_AGENDA_URI).text)
+    cached_agenda = yaml.safe_load(requests.get(settings.PYPLENARY_AGENDA_URI).text)
     for day, items in cached_agenda.items():
         for item in items:
             writer.writerow([day, 
@@ -82,7 +82,7 @@ def generateSpeakerListCSV(request):
     reportsIO = StringIO()
     writer = csv.writer(reportsIO)
     writer.writerow(['Group', 'Position', 'Name', 'Report link'])
-    cached_reports = yaml.load(requests.get(settings.PYPLENARY_REPORTS_URI).text)
+    cached_reports = yaml.safe_load(requests.get(settings.PYPLENARY_REPORTS_URI).text)
     for group in cached_reports:
         for report in group['reports']:
             writer.writerow([group['name'] if 'name' in group else '', 
