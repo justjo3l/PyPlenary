@@ -1,14 +1,9 @@
 {
-  "builds": [
-    {
-      "src": "pyplenary/pyplenary/wsgi.py",
-      "use": "@vercel/python"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "pyplenary/pyplenary/wsgi.py"
-    }
-  ]
+  "build": {
+    "builder": "NIXPACKS"
+  },
+  "deploy": {
+    "startCommand": "cd pyplenary && gunicorn pyplenary.wsgi:application --bind 0.0.0.0:$PORT",
+    "restartPolicyType": "ON_FAILURE"
+  }
 }
