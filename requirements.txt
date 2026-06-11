@@ -9,6 +9,7 @@ channels_redis==4.3.0
 charset-normalizer==3.4.7
 click==8.4.1
 constantly==23.10.4
+crispy-bootstrap4
 crispy-forms-semantic-ui==0.2.0
 cryptography==48.0.1
 Django==6.0.6
