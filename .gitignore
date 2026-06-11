@@ -3,3 +3,4 @@ __pycache__
 *.bat
 /pyplenary/static
 /pyplenary/scripts
+config.yaml

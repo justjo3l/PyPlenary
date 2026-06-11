@@ -2,6 +2,7 @@
 from pathlib import Path
 import os
 from .utils import *
+import yaml
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -12,15 +13,29 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get('SECRET_KEY', 'tempKey')
 
-# location of custom configurations file
-# LOAD DEVELOPMENT SETTINGS IF ENVIRON SET
-if os.environ.get('DJANGO_DEVELOPMENT'):
-    # development environment
-    CUSTOM_CONFIG_URL = 'https://drive.google.com/uc?id=1FJFrtS2sJ9kk9a1Bsokt0cBYg05-ESpn'
-else:
-    # production environment
-    CUSTOM_CONFIG_URL = 'https://drive.google.com/uc?id=1851_s4XH7rQUrGQuU5zkZ1-ryBDPTqru'
-CUSTOM_CONFIGS = readConfigYAMLFromHTML(CUSTOM_CONFIG_URL)
+CUSTOM_CONFIGS = {
+    'COUNCIL_URL': os.environ.get('COUNCIL_URL'),
+    'DBHOST': os.environ.get('PGHOST'),
+    'DBDOMAIN': '',
+    'DBNAME': os.environ.get('PGDATABASE'),
+    'DBUSER': os.environ.get('PGUSER'),
+    'DBPORT': os.environ.get('PGPORT', 5432),
+    'DEBUG_MODE': os.environ.get('DEBUG_MODE', '0'),
+    'EMAIL_HOST_USER': os.environ.get('EMAIL_HOST_USER'),
+    'REDIS_URL': os.environ.get('REDIS_URL'),
+    'REGO_OPEN': os.environ.get('REGO_OPEN', '0'),
+    'USER_TEMP_PASSWORD': os.environ.get('USER_TEMP_PASSWORD'),
+    'PYPLENARY_NAVBAR_NAME': os.environ.get('PYPLENARY_NAVBAR_NAME'),
+    'PYPLENARY_SITE_NAME': os.environ.get('PYPLENARY_SITE_NAME'),
+    'PYPLENARY_SITE_TAGLINE': os.environ.get('PYPLENARY_SITE_TAGLINE'),
+    'PYPLENARY_AGENDA_URI': os.environ.get('PYPLENARY_AGENDA_URI'),
+    'PYPLENARY_REPORTS_URI': os.environ.get('PYPLENARY_REPORTS_URI'),
+    'PYPLENARY_POLICIES_URI': os.environ.get('PYPLENARY_POLICIES_URI'),
+    'PYPLENARY_SOCIALS_URI': os.environ.get('PYPLENARY_SOCIALS_URI'),
+    'PYPLENARY_NODES_URI': os.environ.get('PYPLENARY_NODES_URI'),
+    'PYPLENARY_FACEBOOK_GROUP': os.environ.get('PYPLENARY_FACEBOOK_GROUP'),
+    'PYPLENARY_TZ': os.environ.get('PYPLENARY_TZ'),
+}
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG =  bool(int(CUSTOM_CONFIGS['DEBUG_MODE']))
@@ -180,10 +195,10 @@ else:
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': CUSTOM_CONFIGS['DBNAME'],
         'HOST': hostname + CUSTOM_CONFIGS['DBDOMAIN'],
-        'USER': CUSTOM_CONFIGS['DBUSER'] + "@" + hostname,
+        'USER': CUSTOM_CONFIGS['DBUSER'],
         'PASSWORD': os.environ.get('DBPASS'),
         'PORT': CUSTOM_CONFIGS['DBPORT'],
-        'SSLMODE': 'true'
+        'OPTIONS': {'sslmode': 'require'},
     }
 
 CACHES = {
