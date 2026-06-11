@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     'crispy_forms',
     'django_extensions',
     'crispy_forms_semantic_ui',
+    'crispy-bootstrap4'
 ] + ['whitenoise.runserver_nostatic']
 
 MIDDLEWARE = [
