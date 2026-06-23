@@ -1,7 +1,41 @@
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.core.mail import send_mail
+from django.test import TestCase, override_settings
+from unittest.mock import Mock, patch
 
 from .models import Delegate, Institution, Poll, Vote
+
+
+class ResendEmailBackendTests(TestCase):
+    @override_settings(
+        EMAIL_BACKEND="councilApp.email_backends.ResendEmailBackend",
+        RESEND_API_KEY="test-api-key",
+        RESEND_API_URL="https://api.resend.test/emails",
+        RESEND_TIMEOUT=5,
+        DEFAULT_FROM_EMAIL="PyPlenary <no-reply@example.com>",
+    )
+    @patch("councilApp.email_backends.requests.post")
+    def test_send_mail_posts_to_resend_api(self, mock_post):
+        response = Mock()
+        response.raise_for_status.return_value = None
+        mock_post.return_value = response
+
+        sent_count = send_mail(
+            "Activation",
+            "Plain text body",
+            "PyPlenary <no-reply@example.com>",
+            ["delegate@example.com"],
+            html_message="<p>HTML body</p>",
+        )
+
+        self.assertEqual(sent_count, 1)
+        mock_post.assert_called_once()
+        _, kwargs = mock_post.call_args
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer test-api-key")
+        self.assertEqual(kwargs["json"]["to"], ["delegate@example.com"])
+        self.assertEqual(kwargs["json"]["subject"], "Activation")
+        self.assertEqual(kwargs["json"]["text"], "Plain text body")
+        self.assertEqual(kwargs["json"]["html"], "<p>HTML body</p>")
 
 
 class AdminWithoutDelegateTests(TestCase):

@@ -37,9 +37,31 @@ Important variables:
 - `SECRET_KEY`, `COUNCIL_URL`, `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`
 - `PGHOST`, `PGDATABASE`, `PGUSER`, `DBPASS`, `PGPORT`
 - `REDIS_URL` for production WebSocket fanout
-- `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `DEFAULT_FROM_EMAIL`
+- `RESEND_API_KEY`, `DEFAULT_FROM_EMAIL` for HTTPS email delivery
 - `PYPLENARY_AGENDA_URI`, `PYPLENARY_REPORTS_URI`, `PYPLENARY_POLICIES_URI`, `PYPLENARY_SOCIALS_URI`, `PYPLENARY_NODES_URI`
 - `PYPLENARY_ADMIN_NAME`, `PYPLENARY_ADMIN_EMAIL`, `PYPLENARY_SUPPORT_EMAIL`
+
+## Email Delivery
+
+Production email should use Resend over HTTPS, which avoids SMTP ports that may be blocked by the host.
+
+Railway variables:
+
+```text
+RESEND_API_KEY=re_...
+DEFAULT_FROM_EMAIL="Your Site <onboarding@resend.dev>"
+PYPLENARY_SUPPORT_EMAIL=your-support-email@example.com
+PYPLENARY_ADMIN_EMAIL=your-admin-email@example.com
+PYPLENARY_ADMIN_NAME=Joel Jose
+```
+
+If you verify your own domain in Resend, replace `DEFAULT_FROM_EMAIL` with a sender from that domain, for example `National Council <no-reply@yourdomain.com>`.
+
+When `RESEND_API_KEY` is present and `EMAIL_BACKEND` is not explicitly set, the app uses `councilApp.email_backends.ResendEmailBackend`. To test without sending real email, set:
+
+```text
+EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend
+```
 
 ## Data Sources
 

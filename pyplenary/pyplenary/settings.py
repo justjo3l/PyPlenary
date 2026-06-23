@@ -253,12 +253,19 @@ else:
         }
     }
 
-EMAIL_BACKEND = env(
-    "EMAIL_BACKEND",
-    "django.core.mail.backends.console.EmailBackend"
-    if DJANGO_DEVELOPMENT
-    else "django.core.mail.backends.smtp.EmailBackend",
-)
+RESEND_API_KEY = env("RESEND_API_KEY")
+RESEND_API_URL = env("RESEND_API_URL", "https://api.resend.com/emails")
+RESEND_TIMEOUT = int(env("RESEND_TIMEOUT", "10"))
+
+default_email_backend = "django.core.mail.backends.console.EmailBackend"
+if not DJANGO_DEVELOPMENT:
+    default_email_backend = (
+        "councilApp.email_backends.ResendEmailBackend"
+        if RESEND_API_KEY
+        else "django.core.mail.backends.smtp.EmailBackend"
+    )
+
+EMAIL_BACKEND = env("EMAIL_BACKEND", default_email_backend)
 EMAIL_HOST = env("EMAIL_HOST", "smtp.gmail.com")
 EMAIL_USE_SSL = env_bool("EMAIL_USE_SSL", True)
 EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", False)
