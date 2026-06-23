@@ -63,6 +63,8 @@
   function assignRep(delegateId) {
     $.ajax({
       url: '/ajax/assignRep/',
+      method: 'POST',
+      headers: csrfHeaders(),
       data: {
         'delegateId': delegateId,
       },

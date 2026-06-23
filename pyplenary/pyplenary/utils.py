@@ -2,8 +2,6 @@ import requests
 import yaml
 
 def readConfigYAMLFromHTML(fileURL):
-    print("Printing Config Vars:")
-    print(requests.get(fileURL).text)
-    print()
-    x = yaml.safe_load(requests.get(fileURL).text)
-    return x
+    response = requests.get(fileURL, timeout=10)
+    response.raise_for_status()
+    return yaml.safe_load(response.text) or {}

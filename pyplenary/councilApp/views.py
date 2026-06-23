@@ -10,23 +10,19 @@ from django.core.cache import caches
 from django.core.mail import send_mail
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import Max
+from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.http import require_GET, require_POST
 from django.http import JsonResponse, Http404, HttpResponse, HttpResponseBadRequest, HttpResponseForbidden
 from django.shortcuts import render, redirect
 from django.template.loader import render_to_string
 from django.utils import timezone
 from django.utils.html import strip_tags
-from datetime import datetime
 
 from .forms import *
 from .models import *
-import os
-import yaml
 from .utils import *
-import requests
 import csv
 import datetime
-
-os.chdir(settings.BASE_DIR) # For loading agenda.yaml, etc.
 
 channel_layer = get_channel_layer()
 
@@ -34,17 +30,22 @@ def index(request):
     return render(request, 'councilApp/index.html', {'active_tab':'index'})
 
 @login_required
+@ensure_csrf_cookie
 def speakerList(request):
     nodes = Institution.objects.filter(is_node=True)
     return render(request, 'councilApp/speaker_list.html', {'active_tab':'speaker_list', 'mode': caches['default'].get('speaker_mode', 'standard'), 'nodes': nodes})
 
 @login_required
+@require_POST
 def ajaxSpeakerAdd(request):
     # FIXME: Acquire lock to prevent race conditions
 
     Speaker.objects.filter(delegate=request.user.delegate).delete()
 
-    if request.GET['action'] == 'remove':
+    action = request.POST.get('action')
+    location = request.POST.get('location', '')
+
+    if action == 'remove':
         speakers = Speaker.speakers_for_ws()
         async_to_sync(channel_layer.group_send)('speakerlist', {'type': 'speakerlist_updated', 'mode': caches['default'].get('speaker_mode', 'standard'), 'speakerlist': speakers})
         return HttpResponse()
@@ -53,21 +54,21 @@ def ajaxSpeakerAdd(request):
     speaker.delegate = request.user.delegate
     speaker.index = (Speaker.objects.all().aggregate(Max('index'))['index__max'] or 0) + 1
 
-    if request.GET['action'] == 'add':
+    if action == 'add':
         speaker.intention = 0
-    elif request.GET['action'] == 'point_order':
+    elif action == 'point_order':
         speaker.intention = 1
-    elif request.GET['action'] == 'add-for':
+    elif action == 'add-for':
         speaker.intention = 2
-    elif request.GET['action'] == 'add-against':
+    elif action == 'add-against':
         speaker.intention = 3
     else:
         return HttpResponseBadRequest('Unknown action')
 
-    if request.GET['location'] == '':
+    if location == '':
         speaker.node = None
     else:
-        speaker.node = Institution.objects.get(id=request.GET['location'])
+        speaker.node = Institution.objects.get(id=location)
 
     speaker.save()
 
@@ -76,22 +77,24 @@ def ajaxSpeakerAdd(request):
     return HttpResponse()
 
 @login_required
+@require_POST
 def ajaxSpeakerRemove(request):
     if not request.user.delegate.superadmin:
-        raise HttpResponseForbidden()
+        return HttpResponseForbidden()
     
-    Speaker.objects.filter(delegate__id=request.GET['delegateId']).delete()
+    Speaker.objects.filter(delegate__id=request.POST.get('delegateId')).delete()
     
     speakers = Speaker.speakers_for_ws()
     async_to_sync(channel_layer.group_send)('speakerlist', {'type': 'speakerlist_updated', 'mode': caches['default'].get('speaker_mode', 'standard'), 'speakerlist': speakers})
     return HttpResponse()
 
 @login_required
+@require_POST
 def ajaxSpeakersReorder(request):
     if not request.user.delegate.superadmin:
-        raise HttpResponseForbidden()
+        return HttpResponseForbidden()
     
-    order = [int(x) for x in request.GET['order'].split(',')]
+    order = [int(x) for x in request.POST.get('order', '').split(',') if x]
     for speaker in Speaker.objects.filter(delegate__id__in=order).select_related('delegate'):
         speaker.index = order.index(speaker.delegate.id)
         speaker.save()
@@ -101,20 +104,23 @@ def ajaxSpeakersReorder(request):
     return HttpResponse()
 
 @login_required
+@require_POST
 def ajaxChangeSpeakingMode(request):
     if not request.user.delegate.superadmin:
-        raise HttpResponseForbidden()
+        return HttpResponseForbidden()
     
-    caches['default'].set('speaker_mode', request.GET['mode'], timeout=None)
+    mode = request.POST.get('mode', 'standard')
+    caches['default'].set('speaker_mode', mode, timeout=None)
     
     speakers = Speaker.speakers_for_ws()
-    async_to_sync(channel_layer.group_send)('speakerlist', {'type': 'speakerlist_updated', 'mode': request.GET['mode'], 'speakerlist': speakers})
+    async_to_sync(channel_layer.group_send)('speakerlist', {'type': 'speakerlist_updated', 'mode': mode, 'speakerlist': speakers})
     return HttpResponse()
 
 @login_required
+@require_POST
 def ajaxSpeakersClear(request):
     if not request.user.delegate.superadmin:
-        raise HttpResponseForbidden()
+        return HttpResponseForbidden()
     
     Speaker.objects.all().delete()
     async_to_sync(channel_layer.group_send)('speakerlist', {'type': 'speakerlist_updated', 'mode': caches['default'].get('speaker_mode', 'standard'), 'speakerlist': []})
@@ -128,6 +134,7 @@ def delegates(request):
     return render(request, 'councilApp/delegates.html', {'allDelegates':allDelegates, 'active_tab':'delegates'})
 
 @login_required
+@ensure_csrf_cookie
 def proxy(request):
     delegate = request.user.delegate
 
@@ -139,10 +146,12 @@ def proxy(request):
     return render(request, 'councilApp/proxy.html', {'delegate':delegate, 'proxiesForMe':proxiesForMe, 'proxiesIHold':proxiesIHold,
         'allDelegates':allDelegates, 'active_tab':'proxy'})
 
+@login_required
+@require_POST
 def proxyNominate(request):
     try:
         delegate = request.user.delegate
-        candidateId = request.GET.get('candidateId', None)
+        candidateId = request.POST.get('candidateId', None)
         holder = Delegate.objects.get(id=candidateId)
     except:
         return JsonResponse({'raise404':True, 'newProxy':None})
@@ -159,6 +168,8 @@ def proxyNominate(request):
     data = {'raise404':False, 'newProxy':[holder.name, holder.institution.shortName]}
     return JsonResponse(data)
 
+@login_required
+@require_POST
 def proxyRetract(request):
     try:
         delegate = request.user.delegate
@@ -175,10 +186,12 @@ def proxyRetract(request):
     data = {'raise404':False, 'oldProxy':[activeProxy.holder.name, activeProxy.holder.institution.shortName]}
     return JsonResponse(data)
 
+@login_required
+@require_POST
 def proxyResign(request):
     try:
         delegate = request.user.delegate
-        proxyId = request.GET.get('proxyId', None)
+        proxyId = request.POST.get('proxyId', None)
         activeProxy = Proxy.objects.get(id=proxyId, active=True)
     except:
         return JsonResponse({'raise404':True, 'oldProxy':None})
@@ -193,6 +206,7 @@ def proxyResign(request):
     return JsonResponse(data)
 
 @login_required
+@ensure_csrf_cookie
 def poll(request):
     allPolls = sorted(Poll.objects.all(), key=lambda x:-x.id)
     delegate = request.user.delegate if request.user.is_authenticated else None
@@ -226,6 +240,7 @@ def createPoll(request):
     return render(request, 'councilApp/pollCreate.html', {'pollForm':pollForm, 'active':False, 'active_tab':'poll'})
     
 @login_required
+@require_POST
 def closePoll(request, pollId):
     if not request.user.delegate.superadmin:
         raise Http404()
@@ -283,6 +298,7 @@ def pollInfo(request, pollId):
         'sumResults':sum(pollResults[1:3]), 'yetToVote':yetToVote, 'active_tab':'poll'})
 
 @login_required
+@ensure_csrf_cookie
 def voteOnPoll(request, pollId):
     try:
         activePoll = Poll.objects.filter(id = pollId, active=True)[0]
@@ -315,6 +331,8 @@ def voteOnPoll(request, pollId):
     return render(request, 'councilApp/vote.html', {'activePoll':activePoll, 'delegateInfo':delegateInfo, 'proxiesInfo':proxiesInfo,
         'active_tab':'vote'})
 
+@login_required
+@require_GET
 def ajaxGetCastVotes(request):
     try:
         pollId = request.GET.get('pollId', None)
@@ -342,12 +360,14 @@ def ajaxGetCastVotes(request):
     data = {'raise404':False, 'activeVoteHTMLIds':activeVoteHTMLIds}
     return JsonResponse(data)
 
+@login_required
+@require_POST
 def ajaxSubmitVotes(request):
     try:
-        pollId = request.GET.get('pollId', None)
+        pollId = request.POST.get('pollId', None)
         activePoll = Poll.objects.filter(id = pollId, active=True)[0]
         delegate = request.user.delegate
-        checkedIds = request.GET.getlist('checkedIds[]', None)
+        checkedIds = request.POST.getlist('checkedIds[]', None)
     except:
         return JsonResponse({'raise404':True})
 
@@ -382,7 +402,7 @@ def agenda(request):
     cache1 = caches['default']
     cached_agenda = cache1.get('agenda')
     if cached_agenda is None or request.GET.get('refresh', '0') == '1':
-        cached_agenda = yaml.safe_load(requests.get(settings.PYPLENARY_AGENDA_URI).text)
+        cached_agenda = fetch_yaml_from_uri(settings.PYPLENARY_AGENDA_URI, "agenda")
         cache1.set('agenda', cached_agenda, timeout=None)
 
     agendaDates = [(key, cached_agenda[key]['date']) for key in cached_agenda.keys()]
@@ -407,7 +427,7 @@ def reports(request):
     cache1 = caches['default']
     cached_reports = cache1.get('reports')
     if cached_reports is None or request.GET.get('refresh', '0') == '1':
-        cached_reports = yaml.safe_load(requests.get(settings.PYPLENARY_REPORTS_URI).text)
+        cached_reports = fetch_yaml_from_uri(settings.PYPLENARY_REPORTS_URI, "reports")
         cache1.set('reports', cached_reports, timeout=None)
 
     return render(request, 'councilApp/councilInfo/reports.html', {'active_tab':'reports', 'active_tab2': 'info', 'allGroups':cached_reports})
@@ -416,7 +436,7 @@ def policies(request):
     cache1 = caches['default']
     cached_policies = cache1.get('policies')
     if cached_policies is None or request.GET.get('refresh', '0') == '1':
-        cached_policies = yaml.safe_load(requests.get(settings.PYPLENARY_POLICIES_URI).text)
+        cached_policies = fetch_yaml_from_uri(settings.PYPLENARY_POLICIES_URI, "policies")
         cache1.set('policies', cached_policies, timeout=None)
 
     return render(request, 'councilApp/councilInfo/policies.html', {'active_tab':'policies', 'active_tab2': 'info', 'allPolicies':cached_policies})
@@ -425,7 +445,7 @@ def socials(request):
     cache1 = caches['default']
     cached_socials = cache1.get('socials')
     if cached_socials is None or request.GET.get('refresh', '0') == '1':
-        cached_socials = yaml.safe_load(requests.get(settings.PYPLENARY_SOCIALS_URI).text)
+        cached_socials = fetch_yaml_from_uri(settings.PYPLENARY_SOCIALS_URI, "socials")
         cache1.set('socials', cached_socials, timeout=None)
 
     return render(request, 'councilApp/councilInfo/socials.html', {'active_tab':'socials', 'active_tab2': 'info', 'allCities':cached_socials})
@@ -434,7 +454,7 @@ def nodes(request):
     cache1 = caches['default']
     cached_nodes = cache1.get('nodes')
     if cached_nodes is None or request.GET.get('refresh', '0') == '1':
-        cached_nodes = yaml.safe_load(requests.get(settings.PYPLENARY_NODES_URI).text)
+        cached_nodes = fetch_yaml_from_uri(settings.PYPLENARY_NODES_URI, "nodes")
         cache1.set('nodes', cached_nodes, timeout=None)
 
     return render(request, 'councilApp/councilInfo/nodes.html', {'active_tab':'nodes', 'active_tab2': 'info', 'allNodes':cached_nodes})
@@ -688,10 +708,10 @@ def loaderio_token(request):
     return HttpResponse('loaderio-' + settings.LOADERIO_TOKEN, content_type='text/plain')
 
 @login_required
+@ensure_csrf_cookie
 def appAdmin(request):
     if request.user.delegate.superadmin:
-        return render(request, 'councilApp/adminToolTemplates/app_admin.html', {'active_tab':'app_admin', 
-            'customConfigURL':settings.CUSTOM_CONFIG_URL.replace('https://drive.google.com/uc?id=', 'https://drive.google.com/file/d/')+'/view?usp=sharing'})
+        return render(request, 'councilApp/adminToolTemplates/app_admin.html', {'active_tab':'app_admin'})
     else:
         raise Http404()
 
@@ -730,22 +750,24 @@ def appAdminAddUsersValidInstitutionsDownload(request):
     return response
 
 @login_required
+@ensure_csrf_cookie
 def appAdminAddUsers(request):
     return render(request, 'councilApp/adminToolTemplates/add_users.html', {'active_tab':'app_admin'})
 
 @login_required
+@require_POST
 def ajaxAddOneUser(request):
     if not request.user.delegate.superadmin:
         raise Http404()
     try:
-        userInfo = request.GET.get('userInfo')
+        userInfo = request.POST.get('userInfo')
         userInfo = json.loads(userInfo)
-        reissue = True if request.GET.get('reissue') == 'true' else False
+        reissue = True if request.POST.get('reissue') == 'true' else False
         result = addUserFromJSON(userInfo, reissue)
 
         return JsonResponse({'result':result})
     except:
-        result['errorCode'] = 'Unknown Error'
+        result = {'success': False, 'errorCode': 'Unknown Error', 'errorMsg': '', 'account': {}}
         return JsonResponse({'result':result})
 
 @login_required
@@ -766,6 +788,7 @@ def appAdminAssignReps(request):
     return render(request, 'councilApp/adminToolTemplates/view_reps.html', {'active_tab':'app_admin', 'repsList': toPass})
 
 @login_required
+@ensure_csrf_cookie
 def appAdminAssignRepById(request, instId):
     if not request.user.delegate.superadmin:
         raise Http404()
@@ -785,11 +808,12 @@ def appAdminAssignRepById(request, instId):
     return render(request, 'councilApp/adminToolTemplates/assign_rep.html', {'active_tab':'app_admin', 'validDelegates': validDelegates, 'inst':inst, 'curRep':rep})
 
 @login_required
+@require_POST
 def ajaxAssignRep(request):
     if not request.user.delegate.superadmin:
         raise Http404()
     try:
-        delegateId = request.GET.get('delegateId', None)
+        delegateId = request.POST.get('delegateId', None)
         delegate = Delegate.objects.get(id=delegateId)
     except:
         return JsonResponse({'raise404':True, 'newRep':None})
@@ -802,6 +826,8 @@ def ajaxAssignRep(request):
     data = {'raise404':False, 'newRep':[delegate.name, delegate.institution.name]}
     return JsonResponse(data)
 
+@login_required
+@ensure_csrf_cookie
 def appAdminAssignAdmins(request):
     if not request.user.delegate.superadmin:
         raise Http404()
@@ -809,17 +835,19 @@ def appAdminAssignAdmins(request):
     validDelegates += list(Delegate.objects.filter(superadmin=False).exclude(id=request.user.delegate.id).exclude(speakerNum=0).exclude(speakerNum=0).order_by('speakerNum'))
     return render(request, 'councilApp/adminToolTemplates/assign_admin.html', {'active_tab':'app_admin', 'validDelegates':validDelegates})
 
+@login_required
+@require_POST
 def ajaxAssignAdmin(request):
     if not request.user.delegate.superadmin:
         raise Http404()
     try:
-        delegateId = request.GET.get('delegateId', None)
-        toAssign = int(request.GET.get('toAssign', None))
+        delegateId = request.POST.get('delegateId', None)
+        toAssign = int(request.POST.get('toAssign', None))
         delegate = Delegate.objects.get(id=delegateId)
     except:
         return JsonResponse({'raise404':True})
 
-    if delegate.id == request.user.delegate:
+    if delegate.id == request.user.delegate.id:
         return JsonResponse({'raise404':True})
 
     if toAssign:
@@ -840,11 +868,12 @@ def ajaxAssignAdmin(request):
     return JsonResponse(data)
 
 @login_required
+@require_POST
 def ajaxResetAndWipe(request):
     if not request.user.delegate.superadmin:
         raise Http404()
     try:
-        confirmation = request.GET.get('confirmation')
+        confirmation = request.POST.get('confirmation')
         if not confirmation:
             return JsonResponse({'raise404':True})
 
@@ -866,13 +895,3 @@ def ajaxResetAndWipe(request):
         
     except:
         return JsonResponse({'raise404':True})
-
-@login_required
-def ajaxRestartSite(request):
-    if not request.user.delegate.superadmin:
-        raise Http404()
-    
-    import subprocess
-    proc = subprocess.run(['bash', '-c', "kill -HUP `ps aux | grep rainbow-saddle | head -n 1 | awk '{print $2;}'`"])
-    
-    return HttpResponse()

@@ -50,7 +50,6 @@ urlpatterns = [
 	path('ajax/assignRep/', views.ajaxAssignRep),
 	path('ajax/ResetAndWipe/', views.ajaxResetAndWipe),
 	path('ajax/addOneUser/', views.ajaxAddOneUser),
-	path('ajax/restartSite/', views.ajaxRestartSite),
 	path('app_admin/assign_admins/', views.appAdminAssignAdmins),
 	path('ajax/assignAdmin/', views.ajaxAssignAdmin),
 ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

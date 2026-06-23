@@ -38,6 +38,8 @@ function voteSubmit(pollId) {
 
   $.ajax({
     url: '/ajax/submitVotes/',
+    method: 'POST',
+    headers: csrfHeaders(),
     data: {
       'pollId':pollId,
       'checkedIds': checkedIds

@@ -31,7 +31,10 @@
 
 <a href="/poll/" class="btn btn-outline-primary">Return to polls</a>
 {% if superadmin and poll.active %}
-  <a href="/poll/close/{{poll.id}}" class="btn btn-danger">Close poll</a>
+  <form action="/poll/close/{{poll.id}}/" method="post" class="d-inline">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-danger">Close poll</button>
+  </form>
 {% endif %}
 
 <br>

@@ -8,15 +8,24 @@ from .models import *
 import csv
 from io import StringIO
 import json
-import random
+import secrets
 import requests
-import string
 import yaml
 import zipfile
 
+REQUEST_TIMEOUT = 10
+
+
+def fetch_yaml_from_uri(uri, label):
+    if not uri:
+        raise ValueError(f"{label} URI is not configured.")
+    response = requests.get(uri, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    return yaml.safe_load(response.text) or {}
+
+
 def readConfigYAMLFromHTML(fileURL):
-    x = yaml.safe_load(requests.get(fileURL).text)
-    return x
+    return fetch_yaml_from_uri(fileURL, "configuration")
 
 def eligibleToVote(delegate, poll):
     if poll.repsOnly:
@@ -44,11 +53,7 @@ def calculateResults(poll):
     return (abstainVotes, yesVotes, noVotes)
 
 def generateToken():
-    choice = string.ascii_lowercase + string.ascii_uppercase + string.digits
-    token = ''
-    for i in range(64):
-        token += random.choice(choice)
-    return token
+    return secrets.token_urlsafe(48)
 
 def generateSpeakerListCSV(request):
     speakersIO = StringIO()
@@ -72,7 +77,7 @@ def generateSpeakerListCSV(request):
     agendaIO = StringIO()
     writer = csv.writer(agendaIO)
     writer.writerow(['Day', 'Time', 'Item'])
-    cached_agenda = yaml.safe_load(requests.get(settings.PYPLENARY_AGENDA_URI).text)
+    cached_agenda = fetch_yaml_from_uri(settings.PYPLENARY_AGENDA_URI, "agenda")
     for day, items in cached_agenda.items():
         for item in items:
             writer.writerow([day, 
@@ -82,7 +87,7 @@ def generateSpeakerListCSV(request):
     reportsIO = StringIO()
     writer = csv.writer(reportsIO)
     writer.writerow(['Group', 'Position', 'Name', 'Report link'])
-    cached_reports = yaml.safe_load(requests.get(settings.PYPLENARY_REPORTS_URI).text)
+    cached_reports = fetch_yaml_from_uri(settings.PYPLENARY_REPORTS_URI, "reports")
     for group in cached_reports:
         for report in group['reports']:
             writer.writerow([group['name'] if 'name' in group else '', 
@@ -155,7 +160,7 @@ def addUserFromJSON(account, forceResend = False):
         return toReturn
     
     try:
-        activateLink = f'https://council.amsa.org.au/activate/{token}'
+        activateLink = f'{settings.WEB_DOMAIN}/activate/{token}'
         subject = f'[ACTION REQUIRED] Webapp Acccount Activation, {settings.CUSTOM_CONFIGS["PYPLENARY_SITE_NAME"]}'
         html_message = render_to_string('councilApp/adminToolTemplates/emailTemplate.html', {'activateLink':activateLink, 'name':name})
         plain_message = strip_tags(html_message)

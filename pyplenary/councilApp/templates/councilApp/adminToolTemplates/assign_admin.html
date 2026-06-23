@@ -60,6 +60,8 @@
   function assignAdmin(delegateId, toAssign) {
     $.ajax({
       url: '/ajax/assignAdmin/',
+      method: 'POST',
+      headers: csrfHeaders(),
       data: {
         'delegateId': delegateId,
         'toAssign': toAssign,

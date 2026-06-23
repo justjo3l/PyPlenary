@@ -3,7 +3,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "cd pyplenary && gunicorn pyplenary.wsgi:application --bind 0.0.0.0:$PORT",
+    "startCommand": "cd pyplenary && uvicorn pyplenary.asgi:application --host 0.0.0.0 --port $PORT --proxy-headers",
     "restartPolicyType": "ON_FAILURE"
   }
 }

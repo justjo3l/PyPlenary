@@ -51,6 +51,8 @@ function papaParseSuccess(results, reissue) {
     // ajax send every field
     $.ajax({
       url: '/ajax/addOneUser/',
+      method: 'POST',
+      headers: csrfHeaders(),
       data: {
         'userInfo': JSON.stringify(results.data[i]),
         'reissue': reissue,
@@ -125,4 +127,3 @@ function downloadLogTxt () {
   var x = logStr.replaceAll('<br>','\n');
   download('add_user_log.txt', x)
 }
-

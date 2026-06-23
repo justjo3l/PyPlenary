@@ -14,10 +14,14 @@ document.querySelectorAll('button[name="action"]').forEach(function(el) {
 			document.getElementById('speaker-controls').style.display = 'flex';
 			document.getElementById('adding-spinner').style.display = 'none';
 		});
-		xhr.open('GET', '/ajax/speakerAdd?action=' + el.getAttribute('value') + '&location=' + locDD.value);
+		var data = new FormData();
+		data.append('action', el.getAttribute('value'));
+		data.append('location', locDD.value);
+		xhr.open('POST', '/ajax/speakerAdd');
+		xhr.setRequestHeader('X-CSRFToken', getCookie('csrftoken'));
 		document.getElementById('speaker-controls').style.display = 'none';
 		document.getElementById('adding-spinner').style.display = 'block';
-		xhr.send();
+		xhr.send(data);
 	});
 });
 
@@ -28,8 +32,11 @@ locDD.addEventListener('change', function() {
 function removeSpeaker(evt) {
 	var elItem = evt.target.parentNode.parentNode.parentNode.parentNode;
 	var xhr = new XMLHttpRequest();
-	xhr.open('GET', '/ajax/speakerRemove?delegateId=' + elItem.dataset.delegateId);
-	xhr.send();
+	var data = new FormData();
+	data.append('delegateId', elItem.dataset.delegateId);
+	xhr.open('POST', '/ajax/speakerRemove');
+	xhr.setRequestHeader('X-CSRFToken', getCookie('csrftoken'));
+	xhr.send(data);
 	evt.preventDefault();
 }
 
@@ -41,19 +48,26 @@ if (is_superadmin) {
 	dragulaSL.on("drop", function(el, target, source, sibling) {
 		var order = Array.from(sl.querySelectorAll('.list-group-item'), (el) => el.dataset.delegateId).join(',');
 		var xhr = new XMLHttpRequest();
-		xhr.open('GET', '/ajax/reorderSpeakers?order=' + order);
-		xhr.send();
+		var data = new FormData();
+		data.append('order', order);
+		xhr.open('POST', '/ajax/reorderSpeakers');
+		xhr.setRequestHeader('X-CSRFToken', getCookie('csrftoken'));
+		xhr.send(data);
 	});
 	
 	document.getElementById('mode-dropdown').addEventListener('click', function() {
 		var xhr = new XMLHttpRequest();
-		xhr.open('GET', '/ajax/changeSpeakingMode?mode=' + document.getElementById('mode-dropdown').value);
-		xhr.send();
+		var data = new FormData();
+		data.append('mode', document.getElementById('mode-dropdown').value);
+		xhr.open('POST', '/ajax/changeSpeakingMode');
+		xhr.setRequestHeader('X-CSRFToken', getCookie('csrftoken'));
+		xhr.send(data);
 	});
 	
 	document.getElementById('clear-speakers').addEventListener('click', function() {
 		var xhr = new XMLHttpRequest();
-		xhr.open('GET', '/ajax/clearSpeakers');
+		xhr.open('POST', '/ajax/clearSpeakers');
+		xhr.setRequestHeader('X-CSRFToken', getCookie('csrftoken'));
 		xhr.send();
 	});
 }

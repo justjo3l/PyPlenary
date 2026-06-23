@@ -1,6 +1,8 @@
 function nominateProxyAJAX(candidateId) {
   $.ajax({
     url: '/ajax/nominateProxy/',
+    method: 'POST',
+    headers: csrfHeaders(),
     data: {
       'candidateId': candidateId
     },
@@ -21,6 +23,8 @@ function nominateProxyAJAX(candidateId) {
 function retractProxyAJAX(candidateId) {
   $.ajax({
     url: '/ajax/retractProxy/',
+    method: 'POST',
+    headers: csrfHeaders(),
     data: {},
     dataType: 'json',
     success: function (data) {
@@ -39,6 +43,8 @@ function retractProxyAJAX(candidateId) {
 function resignProxyAJAX(proxyId) {
   $.ajax({
     url: '/ajax/resignProxy/',
+    method: 'POST',
+    headers: csrfHeaders(),
     data: {
       'proxyId': proxyId
     },

@@ -9,6 +9,10 @@ from .models import *
 
 class SpeakerListConsumer(WebsocketConsumer):
     def connect(self):
+        if not self.scope["user"].is_authenticated or not hasattr(self.scope["user"], "delegate"):
+            self.close()
+            return
+
         async_to_sync(self.channel_layer.group_add)('speakerlist', self.channel_name)
         self.accept()
         
