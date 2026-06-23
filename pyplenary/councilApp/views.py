@@ -1,4 +1,5 @@
 import json
+import logging
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.conf import settings
@@ -25,6 +26,7 @@ import csv
 import datetime
 
 channel_layer = get_channel_layer()
+logger = logging.getLogger(__name__)
 
 def index(request):
     return render(request, 'councilApp/index.html', {'active_tab':'index'})
@@ -534,7 +536,8 @@ def passwordResetLinkRequest(request):
 
                 return render(request, 'councilApp/authTemplates/requestChange.html', {'emailForm':emailForm, 'done':True})
 
-            except:
+            except Exception:
+                logger.exception("Failed to send password reset email to %s", email)
                 return render(request, 'councilApp/authTemplates/requestChange.html', {'emailForm':emailForm, 'done':True})
     else:
         emailForm = PasswordChangeEmail()
@@ -614,7 +617,8 @@ def regoRequest(request):
 
                 return render(request, 'councilApp/authTemplates/rego.html', {'regoForm':None, 'email':email, 'done':True, 'error':0, 'active_tab':'registration'})
 
-            except:
+            except Exception:
+                logger.exception("Failed to send registration activation email to %s", email)
                 return render(request, 'councilApp/authTemplates/rego.html', {'regoForm':None, 'email':None, 'done':True, 'error':2, 'active_tab':'registration'})
     else:
         regoForm = RegoForm()

@@ -8,12 +8,14 @@ from .models import *
 import csv
 from io import StringIO
 import json
+import logging
 import secrets
 import requests
 import yaml
 import zipfile
 
 REQUEST_TIMEOUT = 10
+logger = logging.getLogger(__name__)
 
 
 def fetch_yaml_from_uri(uri, label):
@@ -177,7 +179,8 @@ def addUserFromJSON(account, forceResend = False):
         
         toReturn['success'] = True
 
-    except:
+    except Exception:
+        logger.exception("Failed to send admin invitation email to %s", email)
         toReturn['errorCode'] = 'Email Error'
         toReturn['errorMsg'] = 'An error occurred when attempting to email an invitation.'
         return toReturn
