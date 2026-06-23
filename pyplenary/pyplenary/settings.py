@@ -2,6 +2,7 @@
 from pathlib import Path
 import os
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -22,6 +23,30 @@ def env_list(name, default=None):
     if not value:
         return default or []
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+TIMEZONE_ALIASES = {
+    "Brisbane time (Australian Eastern Standard Time)": "Australia/Brisbane",
+    "Australian Eastern Standard Time": "Australia/Brisbane",
+    "AEST": "Australia/Brisbane",
+    "AEDT": "Australia/Melbourne",
+    "Melbourne time": "Australia/Melbourne",
+    "Sydney time": "Australia/Sydney",
+    "Brisbane time": "Australia/Brisbane",
+}
+
+
+def normalize_timezone(value):
+    timezone = TIMEZONE_ALIASES.get(value, value)
+    try:
+        ZoneInfo(timezone)
+    except ZoneInfoNotFoundError:
+        if DJANGO_DEVELOPMENT:
+            return "Australia/Melbourne"
+        raise RuntimeError(
+            f"PYPLENARY_TZ must be an IANA timezone such as Australia/Brisbane, not {value!r}."
+        )
+    return timezone
 
 
 DEBUG = env_bool("DEBUG_MODE", False)
@@ -70,7 +95,7 @@ CUSTOM_CONFIGS = {
     "PYPLENARY_SOCIALS_URI": env("PYPLENARY_SOCIALS_URI"),
     "PYPLENARY_NODES_URI": env("PYPLENARY_NODES_URI"),
     "PYPLENARY_FACEBOOK_GROUP": env("PYPLENARY_FACEBOOK_GROUP"),
-    "PYPLENARY_TZ": env("PYPLENARY_TZ", "Australia/Melbourne"),
+    "PYPLENARY_TZ": normalize_timezone(env("PYPLENARY_TZ", "Australia/Melbourne")),
 }
 
 INSTALLED_APPS = [
