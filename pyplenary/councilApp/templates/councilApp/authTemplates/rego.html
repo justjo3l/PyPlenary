@@ -15,13 +15,13 @@
   {% elif error == 2 %}
     <div class="alert alert-danger" role="alert">
       <h4>Error</h4>
-      An error has occurred. Please contact <a href="mailto:secretary@amsa.org.au" class="alert-link">secretary@amsa.org.au</a> for assistance.
+      An error has occurred. Please contact <a href="mailto:{{ PYPLENARY_SUPPORT_EMAIL }}" class="alert-link">{{ PYPLENARY_SUPPORT_EMAIL }}</a> for assistance.
     </div>
   {% else %}
     {% if done %}
       <div class="alert alert-success" role="alert">
         <p>An email containing an activation link has been sent to <strong>{{email}}</strong>.</p>
-        If you haven't received this email within five minutes, please check your spam folder. Contact <a href="mailto:secretary@amsa.org.au" class="alert-link">secretary@amsa.org.au</a> if you run into any further issues.
+        If you haven't received this email within five minutes, please check your spam folder. Contact <a href="mailto:{{ PYPLENARY_SUPPORT_EMAIL }}" class="alert-link">{{ PYPLENARY_SUPPORT_EMAIL }}</a> if you run into any further issues.
       </div>
     {% else %}
       <div class="alert alert-warning" role="alert">

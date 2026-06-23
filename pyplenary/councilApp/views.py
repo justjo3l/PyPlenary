@@ -520,9 +520,15 @@ def passwordResetLinkRequest(request):
             try:
                 resetLink = f'{settings.WEB_DOMAIN}/password_reset/{token}'
                 subject = 'Council Webapp Password Change Request'
-                html_message = render_to_string('councilApp/authTemplates/passwordEmail.html', {'domain':settings.WEB_DOMAIN, 'resetLink':resetLink})
+                html_message = render_to_string('councilApp/authTemplates/passwordEmail.html', {
+                    'domain':settings.WEB_DOMAIN,
+                    'resetLink':resetLink,
+                    'site_name':settings.PYPLENARY_SITE_NAME,
+                    'support_email':settings.PYPLENARY_SUPPORT_EMAIL,
+                    'admin_name':settings.PYPLENARY_ADMIN_NAME,
+                })
                 plain_message = strip_tags(html_message)
-                email_from = 'AMSA Council Webmaster'
+                email_from = settings.DEFAULT_FROM_EMAIL
 
                 send_mail(subject, plain_message, email_from, [email], html_message=html_message)
 
@@ -594,9 +600,15 @@ def regoRequest(request):
             try:
                 activateLink = f'{settings.WEB_DOMAIN}/activate/{token}'
                 subject = 'Council Webapp Acccount Activation'
-                html_message = render_to_string('councilApp/authTemplates/activationEmail.html', {'activateLink':activateLink, 'name':name})
+                html_message = render_to_string('councilApp/authTemplates/activationEmail.html', {
+                    'activateLink':activateLink,
+                    'name':name,
+                    'site_name':settings.PYPLENARY_SITE_NAME,
+                    'support_email':settings.PYPLENARY_SUPPORT_EMAIL,
+                    'admin_name':settings.PYPLENARY_ADMIN_NAME,
+                })
                 plain_message = strip_tags(html_message)
-                email_from = 'AMSA Council Webmaster'
+                email_from = settings.DEFAULT_FROM_EMAIL
 
                 send_mail(subject, plain_message, email_from, [email], html_message=html_message)
 
@@ -878,7 +890,7 @@ def ajaxResetAndWipe(request):
             return JsonResponse({'raise404':True})
 
         # Deleting in the order
-        superadminEmail = 'council.webmaster@amsa.org.au'
+        superadminEmail = settings.PYPLENARY_ADMIN_EMAIL
 
         if request.user.username != superadminEmail:
             logout(request)
@@ -888,7 +900,7 @@ def ajaxResetAndWipe(request):
         Speaker.objects.all().delete()
         ResetToken.objects.all().delete()
         PendingRego.objects.all().delete()
-        Delegate.objects.all().exclude(authClone__username='council.webmaster@amsa.org.au').delete()
+        Delegate.objects.all().exclude(authClone__username=superadminEmail).delete()
         User.objects.all().exclude(username=superadminEmail).delete()
 
         return JsonResponse({'raise404':False, 'successWipe':True})

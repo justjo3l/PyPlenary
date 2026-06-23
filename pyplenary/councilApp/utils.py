@@ -162,9 +162,16 @@ def addUserFromJSON(account, forceResend = False):
     try:
         activateLink = f'{settings.WEB_DOMAIN}/activate/{token}'
         subject = f'[ACTION REQUIRED] Webapp Acccount Activation, {settings.CUSTOM_CONFIGS["PYPLENARY_SITE_NAME"]}'
-        html_message = render_to_string('councilApp/adminToolTemplates/emailTemplate.html', {'activateLink':activateLink, 'name':name})
+        html_message = render_to_string('councilApp/adminToolTemplates/emailTemplate.html', {
+            'activateLink':activateLink,
+            'name':name,
+            'site_name':settings.PYPLENARY_SITE_NAME,
+            'site_url':settings.WEB_DOMAIN.rstrip('/'),
+            'support_email':settings.PYPLENARY_SUPPORT_EMAIL,
+            'admin_name':settings.PYPLENARY_ADMIN_NAME,
+        })
         plain_message = strip_tags(html_message)
-        email_from = 'AMSA Council Webmaster'
+        email_from = settings.DEFAULT_FROM_EMAIL
         send_mail(subject, plain_message, email_from, [email], html_message=html_message)
         PendingRego.objects.create(token=token, email=email, name=name, institution=institution, role=role, pronouns=pronouns, firstTime=firstTime)
         
