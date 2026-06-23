@@ -24,10 +24,6 @@
         If you haven't received this email within five minutes, please check your spam folder. Contact <a href="mailto:{{ PYPLENARY_SUPPORT_EMAIL }}" class="alert-link">{{ PYPLENARY_SUPPORT_EMAIL }}</a> if you run into any further issues.
       </div>
     {% else %}
-      <div class="alert alert-warning" role="alert">
-        <p><strong>Please note:</strong> This form is to create an account on the webapp. It is distinct from actual registration for Council.</p>
-        If you have registered for Council, you should already have received an email containing an activation link. Please check your spam folder and try that link without using this form. Only use this form if you <strong>cannot</strong> locate that link.
-      </div>
       <h5>Enter your details below.</h5>
 
       <div>
@@ -40,7 +36,7 @@
         </form>
       </div>
       <script>
-        $( ".form-group" ).after( "<br>" );form-select-sm
+        $( ".form-group" ).after( "<br>" );
         $( "#id_institution" ).addClass("form-select-sm");
       </script>
     {% endif %}

@@ -57,8 +57,8 @@
               <a class="nav-link {% if active_tab == 'poll' %}active{% endif %}"  href="/poll/">Poll Centre</a>
             </li>
 
-            {% if user.is_authenticated %}
-              {% if user.delegate.superadmin %}
+            {% if current_delegate %}
+              {% if current_delegate.superadmin %}
                 <li class="nav-item">
                   <a class="nav-link {% if active_tab == 'app_admin' %}active{% endif %}"  href="/app_admin/">Admin Centre</a>
                 </li>
@@ -69,11 +69,18 @@
 
             {% if user.is_authenticated %}
             <li class="nav-item dropdown">
-              <a class="nav-link dropdown-toggle" data-bs-toggle="dropdown" href="#" role="button" aria-expanded="false">{{ user.delegate.name }}</a>
+              <a class="nav-link dropdown-toggle" data-bs-toggle="dropdown" href="#" role="button" aria-expanded="false">{% if current_delegate %}{{ current_delegate.name }}{% else %}{{ user.username }}{% endif %}</a>
               <ul class="dropdown-menu dropdown-menu-dark">
-                <li><a class="dropdown-item" href="/profile/">My Details</a></li>
+                {% if current_delegate %}
+                  <li><a class="dropdown-item" href="/profile/">My Details</a></li>
+                {% endif %}
                 <li><a class="dropdown-item" href="/password_reset_logged/">Change Password</a></li>
-                <li><a class="dropdown-item"  href="/proxy/">Manage Proxies</a></li>
+                {% if current_delegate %}
+                  <li><a class="dropdown-item"  href="/proxy/">Manage Proxies</a></li>
+                {% endif %}
+                {% if user.is_staff %}
+                  <li><a class="dropdown-item" href="/admin/">Django Admin</a></li>
+                {% endif %}
                 <li><a class="dropdown-item" href="/logout/">Logout</a></li>
               </ul>
             </li>

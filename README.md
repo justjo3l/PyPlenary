@@ -51,6 +51,31 @@ Application state is stored in the Django database:
 - speaker list entries
 - registration and password reset tokens
 
+Institutions are not loaded from YAML or environment variables. They are rows in the `Institution` database table, represented by `councilApp.models.Institution`.
+
+Institution fields:
+
+- `name`: full institution name shown in forms and lists.
+- `shortName`: accepted short name and compact display label.
+- `state`: state/region label.
+- `votesWeight`: vote weight used when a poll is institution-weighted.
+- `is_node`: whether the institution appears as a speaker-list node/location.
+
+Where institutions are used:
+
+- The registration/profile form reads `Institution.objects.all()` for the institution dropdown.
+- Admin CSV invitations validate the `Institution` CSV column against existing institution `name` and `shortName` values.
+- `/app_admin/valid_institutions/` displays the current valid institution names.
+- `/app_admin/valid_institutions/download/` downloads the same list as text.
+- Weighted polls use `Institution.votesWeight`.
+- Speaker-list node selection uses institutions where `is_node=True`.
+
+How to configure institutions:
+
+- Use Django admin at `/admin/` and edit `Institution` records.
+- Or add/update them through a data migration/fixture if you want source-controlled defaults.
+- Or insert them manually in the database for a one-off deployment.
+
 Council information pages load YAML from configured remote URIs and cache the parsed content. Redis is used when `REDIS_URL` is configured; otherwise local memory cache is used.
 
 Configured YAML sources:

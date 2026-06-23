@@ -4,6 +4,27 @@ from django.test import TestCase
 from .models import Delegate, Institution, Poll, Vote
 
 
+class AdminWithoutDelegateTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_superuser(
+            username="admin@example.com",
+            email="admin@example.com",
+            password="password",
+        )
+        self.client.login(username="admin@example.com", password="password")
+
+    def test_home_renders_without_delegate_profile(self):
+        response = self.client.get("/")
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_profile_renders_helpful_message_without_delegate_profile(self):
+        response = self.client.get("/profile/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "not linked to a council delegate profile yet")
+
+
 class MutatingEndpointMethodTests(TestCase):
     def setUp(self):
         self.institution = Institution.objects.create(

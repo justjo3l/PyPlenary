@@ -662,7 +662,10 @@ def regoSetPassword(request, token):
 @login_required
 def profile(request):
     user = request.user
-    delegate = request.user.delegate
+    delegate = getattr(request.user, 'delegate', None)
+    if delegate is None:
+        return render(request, 'councilApp/authTemplates/noDelegate.html', {'active_tab':'profile'})
+
     done = False
     emailChanged = False
 

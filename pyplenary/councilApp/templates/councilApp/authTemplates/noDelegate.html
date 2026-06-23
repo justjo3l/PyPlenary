@@ -1,0 +1,14 @@
+{% extends 'councilApp/base.html' %}
+
+{% block title %}Profile unavailable{% endblock %}
+
+{% block content %}
+<div style="max-width: 600px; margin: 0 auto;">
+  <h2>Profile unavailable</h2>
+  <div class="alert alert-warning" role="alert">
+    This login has Django admin access, but it is not linked to a council delegate profile yet.
+  </div>
+  <p>Use the Django admin to create a <strong>Delegate</strong> row linked to this user, or continue to the Django admin interface.</p>
+  <a href="/admin/" class="btn btn-primary">Open Django Admin</a>
+</div>
+{% endblock %}
