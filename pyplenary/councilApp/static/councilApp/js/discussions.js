@@ -673,6 +673,22 @@ function renderQuestionItem(list, discussion, question, byParent, depth) {
 		actions.appendChild(button('Reply', 'btn btn-outline-secondary btn-sm', function() {
 			renderInlineReplyForm(item, discussion, question);
 		}));
+		if (question.author.id === delegate_id) {
+			actions.appendChild(button('Edit', 'btn btn-outline-secondary btn-sm', function() {
+				renderInlineEditForm(item, discussion, question, text);
+			}));
+			actions.appendChild(button('Delete', 'btn btn-outline-danger btn-sm', function() {
+				if (confirm('Delete this Q&A message?')) {
+					postDiscussion('/ajax/discussionQuestionDelete/', {questionId: question.id}, function() {
+						optimisticPatchDiscussion(discussion.id, function(copy) {
+							copy.questions = copy.questions.filter(function(item) {
+								return item.id !== question.id && item.parent_id !== question.id;
+							});
+						});
+					});
+				}
+			}));
+		}
 	}
 
 	(byParent[question.id] || []).forEach(function(reply) {
@@ -707,6 +723,9 @@ function submitQuestion(discussion, textarea, parentId) {
 }
 
 function renderInlineReplyForm(item, discussion, question) {
+	document.querySelectorAll('.inline-reply-form').forEach(function(form) {
+		form.remove();
+	});
 	var existing = item.querySelector('.inline-reply-form');
 	if (existing) {
 		existing.querySelector('textarea').focus();
@@ -716,10 +735,19 @@ function renderInlineReplyForm(item, discussion, question) {
 	form.className = 'inline-reply-form border rounded p-2 mt-2 bg-light';
 	item.appendChild(form);
 
+	var header = document.createElement('div');
+	header.className = 'd-flex align-items-center mb-2';
+	form.appendChild(header);
+
 	var label = document.createElement('div');
-	label.className = 'small text-muted mb-2';
+	label.className = 'small text-muted';
+	label.style.flexGrow = '1';
 	label.innerText = 'Replying to ' + question.author.name;
-	form.appendChild(label);
+	header.appendChild(label);
+
+	header.appendChild(button('×', 'btn btn-sm btn-outline-secondary', function() {
+		form.remove();
+	}));
 
 	var textarea = document.createElement('textarea');
 	textarea.className = 'form-control form-control-sm mb-2';
@@ -734,6 +762,59 @@ function renderInlineReplyForm(item, discussion, question) {
 
 	actions.appendChild(button('Reply', 'btn btn-primary btn-sm', function() {
 		submitQuestion(discussion, textarea, question.id);
+		form.remove();
+	}));
+	textarea.focus();
+}
+
+function renderInlineEditForm(item, discussion, question, textElement) {
+	document.querySelectorAll('.inline-edit-form').forEach(function(form) {
+		form.remove();
+	});
+	var form = document.createElement('div');
+	form.className = 'inline-edit-form border rounded p-2 mt-2 bg-light';
+	item.appendChild(form);
+
+	var header = document.createElement('div');
+	header.className = 'd-flex align-items-center mb-2';
+	form.appendChild(header);
+
+	var label = document.createElement('div');
+	label.className = 'small text-muted';
+	label.style.flexGrow = '1';
+	label.innerText = 'Editing your message';
+	header.appendChild(label);
+
+	header.appendChild(button('×', 'btn btn-sm btn-outline-secondary', function() {
+		form.remove();
+	}));
+
+	var textarea = document.createElement('textarea');
+	textarea.className = 'form-control form-control-sm mb-2';
+	textarea.rows = 2;
+	textarea.maxLength = 2000;
+	textarea.value = question.text;
+	form.appendChild(textarea);
+
+	var actions = document.createElement('div');
+	actions.className = 'd-flex gap-2';
+	form.appendChild(actions);
+
+	actions.appendChild(button('Save', 'btn btn-primary btn-sm', function() {
+		var nextText = textarea.value.trim();
+		if (!nextText) {
+			return;
+		}
+		postDiscussion('/ajax/discussionQuestionEdit/', {questionId: question.id, text: nextText}, function() {
+			optimisticPatchDiscussion(discussion.id, function(copy) {
+				copy.questions.forEach(function(item) {
+					if (item.id === question.id) {
+						item.text = nextText;
+					}
+				});
+			});
+		});
+		textElement.innerText = nextText;
 		form.remove();
 	}));
 	textarea.focus();

@@ -11,26 +11,36 @@
 
 {% block content %}
   <div class="mb-4">
-    <h2 class="mb-3">Active Discussions</h2>
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+      <h2 class="mb-0" style="flex-grow:1">Active Discussions</h2>
+      {% if can_create_discussions %}
+        <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#createDiscussionModal">Create Discussion</button>
+      {% endif %}
+    </div>
 
     {% if can_create_discussions %}
-      <form method="post" class="mb-4">
-        {% csrf_token %}
-        <div class="row g-2 align-items-end">
-          <div class="col-12 col-lg-5">
-            {{ discussionForm.title|as_crispy_field }}
-          </div>
-          <div class="col-12 col-lg-4">
-            {{ discussionForm.discussion_type|as_crispy_field }}
-          </div>
-          <div class="col-12 col-lg-2">
-            {{ discussionForm.default_speaker_seconds|as_crispy_field }}
-          </div>
-          <div class="col-12 col-lg-1">
-            <button type="submit" class="btn btn-success w-100">Create</button>
+      <div class="modal fade" id="createDiscussionModal" tabindex="-1" aria-labelledby="createDiscussionModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <form method="post">
+              {% csrf_token %}
+              <div class="modal-header">
+                <h5 class="modal-title" id="createDiscussionModalLabel">Create Discussion</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+              </div>
+              <div class="modal-body">
+                {{ discussionForm.title|as_crispy_field }}
+                {{ discussionForm.discussion_type|as_crispy_field }}
+                {{ discussionForm.default_speaker_seconds|as_crispy_field }}
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-success">Create</button>
+              </div>
+            </form>
           </div>
         </div>
-      </form>
+      </div>
     {% endif %}
 
     <div id="discussion-list" data-mode="list">

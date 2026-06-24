@@ -1,9 +1,10 @@
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
+from django.db.models import Q
 from django.test import TestCase, override_settings
 from unittest.mock import Mock, patch
 
-from .models import Delegate, Discussion, DiscussionParticipant, DiscussionQuestion, DiscussionQuestionReaction, DiscussionSpeaker, Institution, PendingRego, Poll, Vote
+from .models import Delegate, Discussion, DiscussionEvent, DiscussionParticipant, DiscussionQuestion, DiscussionQuestionReaction, DiscussionSpeaker, Institution, PendingRego, Poll, Vote
 
 
 class ResendEmailBackendTests(TestCase):
@@ -413,6 +414,35 @@ class DiscussionTests(TestCase):
         self.assertEqual(reply_response.status_code, 200)
         self.assertEqual(DiscussionQuestion.objects.count(), 2)
         self.assertEqual(DiscussionQuestion.objects.exclude(id=question.id).get().parent, question)
+        self.assertTrue(DiscussionEvent.objects.filter(Q(message__contains='Following this too.') & Q(message__contains='What is the timeline?')).exists())
+
+    def test_author_can_edit_and_delete_discussion_question(self):
+        discussion = Discussion.objects.create(
+            title="Questions",
+            moderator=self.moderator,
+            discussion_type=Discussion.TYPE_INFORMAL,
+            default_speaker_seconds=30,
+        )
+        question = DiscussionQuestion.objects.create(
+            discussion=discussion,
+            author=self.moderator,
+            text="Original question",
+        )
+
+        edit_response = self.client.post(
+            "/ajax/discussionQuestionEdit/",
+            {"questionId": question.id, "text": "Edited question"},
+        )
+        question.refresh_from_db()
+        delete_response = self.client.post(
+            "/ajax/discussionQuestionDelete/",
+            {"questionId": question.id},
+        )
+
+        self.assertEqual(edit_response.status_code, 200)
+        self.assertEqual(question.text, "Edited question")
+        self.assertEqual(delete_response.status_code, 200)
+        self.assertEqual(DiscussionQuestion.objects.count(), 0)
 
     def test_discussion_question_reaction_toggles(self):
         discussion = Discussion.objects.create(

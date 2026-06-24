@@ -74,5 +74,4 @@ class DiscussionCreateForm(forms.Form):
         min_value=15,
         max_value=900,
         initial=60,
-        help_text='15 seconds to 15 minutes.',
     )

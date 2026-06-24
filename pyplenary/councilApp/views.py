@@ -476,13 +476,61 @@ def ajaxDiscussionQuestionAdd(request):
         except DiscussionQuestion.DoesNotExist:
             return JsonResponse({'raise404': True, 'error': 'invalid_parent'})
 
-    DiscussionQuestion.objects.create(
+    question = DiscussionQuestion.objects.create(
         discussion=discussion,
         author=delegate,
         parent=parent,
         text=text,
     )
-    log_discussion_event(discussion, delegate, 'question_add', f'{delegate.name} posted a Q&A message.')
+    if parent:
+        log_discussion_event(discussion, delegate, 'question_reply', f'{delegate.name} replied "{text}" to "{parent.text}".')
+    else:
+        log_discussion_event(discussion, delegate, 'question_add', f'{delegate.name} posted Q&A message "{question.text}".')
+    broadcast_discussions()
+    return JsonResponse({'raise404': False})
+
+
+@login_required
+@require_POST
+def ajaxDiscussionQuestionEdit(request):
+    delegate = current_delegate(request)
+    if delegate is None:
+        return JsonResponse({'raise404': True})
+    try:
+        question = DiscussionQuestion.objects.select_related('discussion', 'author').get(id=request.POST.get('questionId'))
+    except DiscussionQuestion.DoesNotExist:
+        return JsonResponse({'raise404': True})
+    if question.discussion.archived or question.author_id != delegate.id:
+        return JsonResponse({'raise404': True})
+    text = (request.POST.get('text') or '').strip()
+    if not text:
+        return JsonResponse({'raise404': True, 'error': 'empty_question'})
+    if len(text) > 2000:
+        return JsonResponse({'raise404': True, 'error': 'question_too_long'})
+    old_text = question.text
+    question.text = text
+    question.save()
+    log_discussion_event(question.discussion, delegate, 'question_edit', f'{delegate.name} edited Q&A message from "{old_text}" to "{text}".')
+    broadcast_discussions()
+    return JsonResponse({'raise404': False})
+
+
+@login_required
+@require_POST
+def ajaxDiscussionQuestionDelete(request):
+    delegate = current_delegate(request)
+    if delegate is None:
+        return JsonResponse({'raise404': True})
+    try:
+        question = DiscussionQuestion.objects.select_related('discussion', 'author').get(id=request.POST.get('questionId'))
+    except DiscussionQuestion.DoesNotExist:
+        return JsonResponse({'raise404': True})
+    if question.discussion.archived or question.author_id != delegate.id:
+        return JsonResponse({'raise404': True})
+    text = question.text
+    discussion = question.discussion
+    question.delete()
+    log_discussion_event(discussion, delegate, 'question_delete', f'{delegate.name} deleted Q&A message "{text}".')
     broadcast_discussions()
     return JsonResponse({'raise404': False})
 

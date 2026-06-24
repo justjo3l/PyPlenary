@@ -22,6 +22,8 @@ urlpatterns = [
 	path('ajax/discussionUpdateSpeakerTime/', views.ajaxDiscussionUpdateSpeakerTime),
 	path('ajax/discussionTimerAction/', views.ajaxDiscussionTimerAction),
 	path('ajax/discussionQuestionAdd/', views.ajaxDiscussionQuestionAdd),
+	path('ajax/discussionQuestionEdit/', views.ajaxDiscussionQuestionEdit),
+	path('ajax/discussionQuestionDelete/', views.ajaxDiscussionQuestionDelete),
 	path('ajax/discussionQuestionReact/', views.ajaxDiscussionQuestionReact),
 	path('ajax/speakerAdd', views.ajaxSpeakerAdd),
 	path('ajax/speakerRemove', views.ajaxSpeakerRemove),
