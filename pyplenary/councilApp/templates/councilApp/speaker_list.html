@@ -1,88 +1,41 @@
 {% extends 'councilApp/base.html' %}
+{% load crispy_forms_tags %}
 {% load static %}
 
 {% comment %}
     Copyright © 2021-2026  Lee Yingtong Li (RunasSudo), Allen Gu
     Modernized and maintained © 2026 Joel Jose
-
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU Affero General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU Affero General Public License for more details.
-
-    You should have received a copy of the GNU Affero General Public License
-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 {% endcomment %}
 
-{% block title %}Speaker List - Council Webapp{% endblock %}
+{% block title %}Active Discussions - Council Webapp{% endblock %}
 
 {% block content %}
-  <div style="max-width: 600px; margin: 0 auto;">
-    <h2 class="mb-3">Speaker List</h2>
+  <div class="mb-4">
+    <h2 class="mb-3">Active Discussions</h2>
 
-    <div class="row mb-3">
-      <label class="col-sm-2 col-form-label">Location</label>
-      <div class="col-sm-10">
-        <select class="select form-control" id="location-dropdown">
-          <option value="---">Please select</option>
-          <option value="">I am Zooming in by myself</option>
-          {% for node in nodes %}
-          <option value="{{ node.id }}">I am at the {{ node.name }} node</option>
-          {% endfor %}
-        </select>
-        <div class="invalid-feedback">
-          Please select your location.
+    <form method="post" class="mb-4">
+      {% csrf_token %}
+      <div class="row g-2 align-items-end">
+        <div class="col-12 col-lg-5">
+          {{ discussionForm.title|as_crispy_field }}
+        </div>
+        <div class="col-12 col-lg-4">
+          {{ discussionForm.discussion_type|as_crispy_field }}
+        </div>
+        <div class="col-12 col-lg-2">
+          {{ discussionForm.default_speaker_seconds|as_crispy_field }}
+        </div>
+        <div class="col-12 col-lg-1">
+          <button type="submit" class="btn btn-success w-100">Create</button>
         </div>
       </div>
-    </div>
+    </form>
 
-    {% if user.delegate.superadmin %}
-      <div class="row mb-3">
-        <label class="col-sm-2 col-form-label">Mode</label>
-        <div class="col-sm-8">
-          <select class="select form-control" id="mode-dropdown">
-            <option value="standard"{% if mode == 'standard' %} selected{% endif %}>Standard</option>
-            {% comment %}<option value="rollcall"{% if mode == 'rollcall' %} selected{% endif %}>Roll call</option>{% endcomment %}
-            <option value="formal"{% if mode == 'formal' %} selected{% endif %}>Formal debate</option>
-          </select>
-        </div>
-        <div class="col-sm-2"><button class="btn btn-outline-primary w-100" id="clear-speakers">Clear</button></div>
-      </div>
-    {% endif %}
-
-    <div id="speaker-controls" class="row mb-3" style="display:none;">
-      <div class="col-12 col-md-6 mb-2 mb-md-0 speaker-controls-mode" id="controls-standard">
-        <button name="action" value="add" class="btn btn-primary w-100">Add yourself to the speaker list</a>
-        <button name="action" value="remove" class="btn btn-secondary w-100">Remove yourself from the list</a>
-      </div>
-      <div class="col-12 col-md-6 mb-2 mb-md-0 speaker-controls-mode" id="controls-rollcall">
-        <button name="action" value="add" class="btn btn-primary w-100"><i class="bi bi-person-check-fill"></i> Register your attendance</a>
-        <button name="action" value="remove" class="btn btn-secondary w-100">Remove yourself from the list</a>
-      </div>
-      <div class="col-12 col-md-3 mb-2 mb-md-0 speaker-controls-mode" id="controls-formal-add-for">
-        <button name="action" value="add-for" class="btn btn-success w-100">Speak for</a>
-      </div>
-      <div class="col-12 col-md-3 mb-2 mb-md-0 speaker-controls-mode" id="controls-formal-add-against">
-        <button name="action" value="add-against" class="btn btn-warning w-100">Speak against</a>
-      </div>
-      <div class="col-12 col-md-6 mb-2 mb-md-0 speaker-controls-mode" id="controls-formal-remove">
-        <button name="action" value="remove" class="btn btn-secondary w-100">Remove yourself from the list</a>
-      </div>
-      <div class="col-12 col-md-6">
-        <button name="action" value="point_order" class="btn btn-danger w-100"><i class="bi bi-exclamation-triangle-fill"></i> Raise a point of order</a>
+    <div id="discussion-list">
+      <div class="text-muted text-center">
+        <div class="spinner-border" role="status"></div>
       </div>
     </div>
-
-    <div id="adding-spinner" class="text-muted text-center mb-2" style="display:block;">
-      <div class="spinner-border" role="status"></div>
-    </div>
-
-    <div class="list-group" id="speaker-list"></div>
   </div>
 {% endblock %}
 
@@ -95,10 +48,7 @@
   {{ block.super }}
   <script src="https://cdn.jsdelivr.net/npm/dragula@3.7.3/dist/dragula.min.js" integrity="sha256-egj5xxtj40Ds0GUbObVZ7m2LEOsnvu9i5Ogtmd1I+jk=" crossorigin="anonymous"></script>
   <script>
-    $(function() {
-      $('[data-toggle="tooltip"]').tooltip();
-    });
-    var is_superadmin = {% if user.delegate.superadmin %}true{% else %}false{% endif %}; // Also validated server side
+    var delegate_id = {{ current_delegate.id }};
   </script>
   <script src="{% static 'councilApp/js/speakerList-refresh.js' %}"></script>
 {% endblock %}

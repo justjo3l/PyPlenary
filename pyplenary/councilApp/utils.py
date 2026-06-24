@@ -64,6 +64,35 @@ def generateSpeakerListCSV(request):
     for delegate in sorted(Delegate.objects.all(), key = lambda x:x.speakerNum):
         writer.writerow([delegate.speakerNum, delegate.name, delegate.role, delegate.institution.shortName, delegate.pronouns])
 
+    discussionsIO = StringIO()
+    writer = csv.writer(discussionsIO)
+    writer.writerow(['Discussion', 'Type', 'Moderator', 'Active', 'Archived', 'Default speaker seconds', 'Current speaker', 'Created at'])
+    for discussion in Discussion.objects.all().select_related('moderator', 'current_speaker__delegate').order_by('created_at'):
+        writer.writerow([
+            discussion.title,
+            discussion.discussion_type,
+            discussion.moderator.name,
+            discussion.active,
+            discussion.archived,
+            discussion.default_speaker_seconds,
+            discussion.current_speaker.delegate.name if discussion.current_speaker else '',
+            discussion.created_at,
+        ])
+
+    discussionSpeakersIO = StringIO()
+    writer = csv.writer(discussionSpeakersIO)
+    writer.writerow(['Discussion', 'Speaker', 'Institution', 'Queue index', 'Duration seconds', 'Status', 'Added at'])
+    for speaker in DiscussionSpeaker.objects.all().select_related('discussion', 'delegate', 'delegate__institution').order_by('discussion_id', 'index'):
+        writer.writerow([
+            speaker.discussion.title,
+            speaker.delegate.name,
+            speaker.delegate.institution.shortName if speaker.delegate.institution else '',
+            speaker.index,
+            speaker.duration_seconds,
+            speaker.status,
+            speaker.added_at,
+        ])
+
     pollsIO = StringIO()
     writer = csv.writer(pollsIO)
     writer.writerow(['Motion', 'Time concluded', 'Result', 'Votes for', 'Votes against', 'Abstentions', 'All votes for', 'All votes against', 'All abstentions'])
@@ -102,6 +131,8 @@ def generateSpeakerListCSV(request):
 
     z = zipfile.ZipFile(response,'w') 
     z.writestr("speakerList.csv", speakersIO.getvalue())
+    z.writestr("activeDiscussions.csv", discussionsIO.getvalue())
+    z.writestr("discussionSpeakers.csv", discussionSpeakersIO.getvalue())
     z.writestr("polls.csv", pollsIO.getvalue())
     z.writestr("agenda.csv", agendaIO.getvalue())
     z.writestr("reports.csv", reportsIO.getvalue())

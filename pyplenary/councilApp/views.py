@@ -10,6 +10,7 @@ from django.contrib.auth.models import User
 from django.core.cache import caches
 from django.core.mail import send_mail
 from django.core.serializers.json import DjangoJSONEncoder
+from django.db import transaction
 from django.db.models import Max
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
@@ -28,14 +29,259 @@ import datetime
 channel_layer = get_channel_layer()
 logger = logging.getLogger(__name__)
 
+
+def current_delegate(request):
+    return getattr(request.user, 'delegate', None) if request.user.is_authenticated else None
+
+
+def broadcast_discussions():
+    async_to_sync(channel_layer.group_send)(
+        'discussions',
+        {'type': 'discussions_updated', 'discussions': Discussion.discussions_for_ws()},
+    )
+
+
+def discussion_or_404(discussion_id):
+    try:
+        return Discussion.objects.get(id=discussion_id, archived=False)
+    except Discussion.DoesNotExist:
+        raise Http404()
+
+
+def require_discussion_moderator(request, discussion):
+    delegate = current_delegate(request)
+    if not discussion.user_can_moderate(delegate):
+        return None
+    return delegate
+
+
+def seconds_from_request(request, field_name, default):
+    try:
+        seconds = int(request.POST.get(field_name, default))
+    except (TypeError, ValueError):
+        seconds = default
+    return min(900, max(15, seconds))
+
 def index(request):
     return render(request, 'councilApp/index.html', {'active_tab':'index'})
 
 @login_required
 @ensure_csrf_cookie
 def speakerList(request):
-    nodes = Institution.objects.filter(is_node=True)
-    return render(request, 'councilApp/speaker_list.html', {'active_tab':'speaker_list', 'mode': caches['default'].get('speaker_mode', 'standard'), 'nodes': nodes})
+    delegate = current_delegate(request)
+    if delegate is None:
+        return render(request, 'councilApp/authTemplates/noDelegate.html', {'active_tab':'speaker_list'})
+
+    if request.method == 'POST':
+        discussionForm = DiscussionCreateForm(request.POST)
+        if discussionForm.is_valid():
+            discussion = Discussion.objects.create(
+                title=discussionForm.cleaned_data['title'],
+                moderator=delegate,
+                discussion_type=discussionForm.cleaned_data['discussion_type'],
+                default_speaker_seconds=discussionForm.cleaned_data['default_speaker_seconds'],
+                timer_remaining_seconds=discussionForm.cleaned_data['default_speaker_seconds'],
+            )
+            DiscussionParticipant.objects.get_or_create(discussion=discussion, delegate=delegate)
+            broadcast_discussions()
+            return redirect('/speaker_list/')
+    else:
+        discussionForm = DiscussionCreateForm()
+
+    return render(request, 'councilApp/speaker_list.html', {
+        'active_tab':'speaker_list',
+        'discussionForm': discussionForm,
+    })
+
+
+@login_required
+@require_POST
+def ajaxDiscussionJoin(request):
+    delegate = current_delegate(request)
+    if delegate is None:
+        return JsonResponse({'raise404': True})
+    discussion = discussion_or_404(request.POST.get('discussionId'))
+    DiscussionParticipant.objects.get_or_create(discussion=discussion, delegate=delegate)
+    broadcast_discussions()
+    return JsonResponse({'raise404': False})
+
+
+@login_required
+@require_POST
+def ajaxDiscussionExit(request):
+    delegate = current_delegate(request)
+    if delegate is None:
+        return JsonResponse({'raise404': True})
+    discussion = discussion_or_404(request.POST.get('discussionId'))
+    if discussion.moderator_id == delegate.id:
+        return JsonResponse({'raise404': True, 'error': 'moderator_cannot_exit'})
+    exiting_current_speaker = (
+        discussion.current_speaker_id is not None
+        and DiscussionSpeaker.objects.filter(id=discussion.current_speaker_id, delegate=delegate).exists()
+    )
+    DiscussionParticipant.objects.filter(discussion=discussion, delegate=delegate).delete()
+    DiscussionSpeaker.objects.filter(discussion=discussion, delegate=delegate, status__in=[DiscussionSpeaker.STATUS_WAITING, DiscussionSpeaker.STATUS_CURRENT]).delete()
+    if exiting_current_speaker:
+        discussion.current_speaker = None
+        discussion.timer_running = False
+        discussion.save()
+    broadcast_discussions()
+    return JsonResponse({'raise404': False})
+
+
+@login_required
+@require_POST
+def ajaxDiscussionArchive(request):
+    discussion = discussion_or_404(request.POST.get('discussionId'))
+    if require_discussion_moderator(request, discussion) is None:
+        return JsonResponse({'raise404': True})
+    discussion.archived = True
+    discussion.active = False
+    discussion.timer_running = False
+    discussion.save()
+    broadcast_discussions()
+    return JsonResponse({'raise404': False})
+
+
+@login_required
+@require_POST
+def ajaxDiscussionAddSpeaker(request):
+    delegate = current_delegate(request)
+    if delegate is None:
+        return JsonResponse({'raise404': True})
+    discussion = discussion_or_404(request.POST.get('discussionId'))
+    target_delegate_id = request.POST.get('delegateId') or delegate.id
+    try:
+        target = Delegate.objects.get(id=target_delegate_id)
+    except Delegate.DoesNotExist:
+        return JsonResponse({'raise404': True})
+
+    is_self = target.id == delegate.id
+    if not is_self and not discussion.user_can_moderate(delegate):
+        return JsonResponse({'raise404': True})
+    if not DiscussionParticipant.objects.filter(discussion=discussion, delegate=target).exists():
+        return JsonResponse({'raise404': True, 'error': 'not_participant'})
+    if discussion.discussion_type == Discussion.TYPE_FORMAL and not target.rep:
+        return JsonResponse({'raise404': True, 'error': 'formal_requires_rep'})
+    if DiscussionSpeaker.objects.filter(discussion=discussion, delegate=target, status__in=[DiscussionSpeaker.STATUS_WAITING, DiscussionSpeaker.STATUS_CURRENT]).exists():
+        return JsonResponse({'raise404': False})
+
+    next_index = (DiscussionSpeaker.objects.filter(discussion=discussion).aggregate(Max('index'))['index__max'] or 0) + 1
+    DiscussionSpeaker.objects.create(
+        discussion=discussion,
+        delegate=target,
+        index=next_index,
+        duration_seconds=discussion.default_speaker_seconds,
+    )
+    broadcast_discussions()
+    return JsonResponse({'raise404': False})
+
+
+@login_required
+@require_POST
+def ajaxDiscussionRemoveSpeaker(request):
+    speaker_id = request.POST.get('speakerId')
+    try:
+        speaker = DiscussionSpeaker.objects.select_related('discussion').get(id=speaker_id)
+    except DiscussionSpeaker.DoesNotExist:
+        return JsonResponse({'raise404': True})
+    if require_discussion_moderator(request, speaker.discussion) is None:
+        return JsonResponse({'raise404': True})
+    discussion = speaker.discussion
+    if discussion.current_speaker_id == speaker.id:
+        discussion.current_speaker = None
+        discussion.timer_running = False
+        discussion.save()
+    speaker.delete()
+    broadcast_discussions()
+    return JsonResponse({'raise404': False})
+
+
+@login_required
+@require_POST
+def ajaxDiscussionReorderSpeakers(request):
+    discussion = discussion_or_404(request.POST.get('discussionId'))
+    if require_discussion_moderator(request, discussion) is None:
+        return JsonResponse({'raise404': True})
+    order = [int(x) for x in request.POST.get('order', '').split(',') if x]
+    speakers = DiscussionSpeaker.objects.filter(discussion=discussion, id__in=order, status=DiscussionSpeaker.STATUS_WAITING)
+    for speaker in speakers:
+        speaker.index = order.index(speaker.id) + 1
+        speaker.save()
+    broadcast_discussions()
+    return JsonResponse({'raise404': False})
+
+
+@login_required
+@require_POST
+def ajaxDiscussionUpdateSpeakerTime(request):
+    try:
+        speaker = DiscussionSpeaker.objects.select_related('discussion').get(id=request.POST.get('speakerId'))
+    except DiscussionSpeaker.DoesNotExist:
+        return JsonResponse({'raise404': True})
+    if require_discussion_moderator(request, speaker.discussion) is None:
+        return JsonResponse({'raise404': True})
+    speaker.duration_seconds = seconds_from_request(request, 'durationSeconds', speaker.duration_seconds)
+    speaker.save()
+    if speaker.discussion.current_speaker_id == speaker.id:
+        speaker.discussion.timer_remaining_seconds = speaker.duration_seconds
+        speaker.discussion.timer_started_at = timezone.now() if speaker.discussion.timer_running else None
+        speaker.discussion.save()
+    broadcast_discussions()
+    return JsonResponse({'raise404': False})
+
+
+@login_required
+@require_POST
+def ajaxDiscussionTimerAction(request):
+    discussion = discussion_or_404(request.POST.get('discussionId'))
+    if require_discussion_moderator(request, discussion) is None:
+        return JsonResponse({'raise404': True})
+    action = request.POST.get('action')
+
+    with transaction.atomic():
+        discussion = Discussion.objects.select_for_update().get(id=discussion.id)
+        current = discussion.current_speaker
+
+        if action == 'activate':
+            discussion.active = True
+            discussion.save()
+        elif action == 'pause' and current:
+            discussion.timer_remaining_seconds = discussion.timer_remaining()
+            discussion.timer_running = False
+            discussion.timer_started_at = None
+            discussion.save()
+        elif action == 'restart' and current:
+            discussion.timer_remaining_seconds = current.duration_seconds
+            discussion.timer_running = True
+            discussion.timer_started_at = timezone.now()
+            discussion.save()
+        elif action in ('skip', 'finish') and current:
+            current.status = DiscussionSpeaker.STATUS_SKIPPED if action == 'skip' else DiscussionSpeaker.STATUS_DONE
+            current.save()
+            discussion.current_speaker = None
+            discussion.timer_running = False
+            discussion.timer_started_at = None
+            discussion.timer_remaining_seconds = discussion.default_speaker_seconds
+            discussion.save()
+        elif action == 'start':
+            if not current:
+                current = discussion.next_waiting_speaker()
+                if not current:
+                    return JsonResponse({'raise404': False, 'empty': True})
+                current.status = DiscussionSpeaker.STATUS_CURRENT
+                current.save()
+                discussion.current_speaker = current
+                discussion.timer_remaining_seconds = current.duration_seconds
+            discussion.active = True
+            discussion.timer_running = True
+            discussion.timer_started_at = timezone.now()
+            discussion.save()
+        else:
+            return JsonResponse({'raise404': True})
+
+    broadcast_discussions()
+    return JsonResponse({'raise404': False})
 
 @login_required
 @require_POST
@@ -904,6 +1150,7 @@ def ajaxResetAndWipe(request):
         Vote.objects.all().delete()
         Proxy.objects.all().delete()
         Poll.objects.all().delete()
+        Discussion.objects.all().delete()
         Speaker.objects.all().delete()
         ResetToken.objects.all().delete()
         PendingRego.objects.all().delete()

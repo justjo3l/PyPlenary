@@ -34,3 +34,24 @@ class RegoForm(forms.Form):
     pronouns = forms.CharField(max_length=100, label='Pronouns (Optional)', help_text='Please enter your pronouns if you wish. This will be publicly displayed.', 
         widget=forms.TextInput(attrs={'placeholder': 'Pronouns'}), required=False)
     firstTime = forms.BooleanField(required = False, label='First-time Council attendee', help_text='Is this your first time at Council?')
+
+
+class DiscussionCreateForm(forms.Form):
+    title = forms.CharField(
+        max_length=200,
+        label='Discussion title',
+        widget=forms.TextInput(attrs={'placeholder': 'Discussion topic'}),
+        required=True,
+    )
+    discussion_type = forms.ChoiceField(
+        label='Discussion type',
+        choices=[('informal', 'Informal - anyone can speak'), ('formal', 'Formal - representatives only can speak')],
+        initial='informal',
+    )
+    default_speaker_seconds = forms.IntegerField(
+        label='Default speaker time (seconds)',
+        min_value=15,
+        max_value=900,
+        initial=60,
+        help_text='15 seconds to 15 minutes.',
+    )

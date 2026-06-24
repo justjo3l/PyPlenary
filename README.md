@@ -1,6 +1,6 @@
 # PyPlenary
 
-PyPlenary is a Django-based web app for National Councils of the Australian Medical Students' Association (AMSA). It manages delegate registration, profiles, a live speaker list, proxy voting, polls, vote exports, and council information pages.
+PyPlenary is a Django-based web app for National Councils of the Australian Medical Students' Association (AMSA). It manages delegate registration, profiles, active discussion rooms with speaker queues, proxy voting, polls, vote exports, and council information pages.
 
 Originally created in 2021 by Allen Gu and Lee Yingtong Li (RunasSudo). Modernized and maintained in 2026 by Joel Jose.
 
@@ -101,7 +101,7 @@ Application state is stored in the Django database:
 - institutions and delegates
 - polls and votes
 - proxies
-- speaker list entries
+- active discussions, discussion participants, and speaker queues
 - registration and password reset tokens
 
 Institutions are not loaded from YAML or environment variables. They are rows in the `Institution` database table, represented by `councilApp.models.Institution`.
@@ -112,7 +112,7 @@ Institution fields:
 - `shortName`: accepted short name and compact display label.
 - `state`: state/region label.
 - `votesWeight`: vote weight used when a poll is institution-weighted.
-- `is_node`: whether the institution appears as a speaker-list node/location.
+- `is_node`: whether the institution appears as a node/location.
 
 Where institutions are used:
 
@@ -121,7 +121,7 @@ Where institutions are used:
 - `/app_admin/valid_institutions/` displays the current valid institution names.
 - `/app_admin/valid_institutions/download/` downloads the same list as text.
 - Weighted polls use `Institution.votesWeight`.
-- Speaker-list node selection uses institutions where `is_node=True`.
+- Node information uses institutions where `is_node=True`.
 
 How to configure institutions:
 
@@ -176,10 +176,12 @@ Primary admin identity is configured with `PYPLENARY_ADMIN_EMAIL` and `PYPLENARY
 
 ## Deployment
 
-The app must run as ASGI because the speaker list uses WebSockets. The included `Procfile`, `railway.json`, and `startup.txt` use Uvicorn:
+The app must run as ASGI because Active Discussions use WebSockets. The included `Procfile`, `railway.json`, and `startup.txt` use Uvicorn.
+
+Railway runs database migrations before starting Uvicorn:
 
 ```bash
-cd pyplenary && uvicorn pyplenary.asgi:application --host 0.0.0.0 --port $PORT --proxy-headers
+cd pyplenary && python manage.py migrate --noinput && uvicorn pyplenary.asgi:application --host 0.0.0.0 --port $PORT --proxy-headers
 ```
 
 Production should set `DJANGO_DEVELOPMENT=0`, provide PostgreSQL settings, provide `REDIS_URL`, and use HTTPS.

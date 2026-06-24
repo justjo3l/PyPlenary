@@ -4,7 +4,7 @@
     "buildCommand": "pip install -r requirements.txt && cd pyplenary && python manage.py collectstatic --noinput"
   },
   "deploy": {
-    "startCommand": "cd pyplenary && uvicorn pyplenary.asgi:application --host 0.0.0.0 --port $PORT --proxy-headers",
+    "startCommand": "cd pyplenary && python manage.py migrate --noinput && uvicorn pyplenary.asgi:application --host 0.0.0.0 --port $PORT --proxy-headers",
     "restartPolicyType": "ON_FAILURE"
   }
 }

@@ -3,7 +3,7 @@ from django.core.mail import send_mail
 from django.test import TestCase, override_settings
 from unittest.mock import Mock, patch
 
-from .models import Delegate, Institution, Poll, Vote
+from .models import Delegate, Discussion, DiscussionParticipant, DiscussionSpeaker, Institution, Poll, Vote
 
 
 class ResendEmailBackendTests(TestCase):
@@ -174,3 +174,139 @@ class MutatingEndpointMethodTests(TestCase):
         self.assertEqual(vote.voter, self.delegate)
         self.assertEqual(vote.vote, 1)
         self.assertEqual(vote.voteWeight, self.institution.votesWeight)
+
+
+class DiscussionTests(TestCase):
+    def setUp(self):
+        self.institution = Institution.objects.create(
+            name="University of Melbourne",
+            shortName="UMelb",
+            state="VIC",
+            votesWeight=2,
+            is_node=False,
+        )
+        self.mod_user = User.objects.create_user(
+            username="moderator@example.com",
+            email="moderator@example.com",
+            password="password",
+        )
+        self.moderator = Delegate.objects.create(
+            authClone=self.mod_user,
+            name="Moderator",
+            email="moderator@example.com",
+            rep=True,
+            superadmin=False,
+            institution=self.institution,
+            role="Moderator",
+            speakerNum=1,
+        )
+        self.rep_user = User.objects.create_user(
+            username="rep@example.com",
+            email="rep@example.com",
+            password="password",
+        )
+        self.rep = Delegate.objects.create(
+            authClone=self.rep_user,
+            name="Rep",
+            email="rep@example.com",
+            rep=True,
+            institution=self.institution,
+            role="Rep",
+            speakerNum=2,
+        )
+        self.non_rep_user = User.objects.create_user(
+            username="delegate@example.com",
+            email="delegate@example.com",
+            password="password",
+        )
+        self.non_rep = Delegate.objects.create(
+            authClone=self.non_rep_user,
+            name="Delegate",
+            email="delegate@example.com",
+            rep=False,
+            institution=self.institution,
+            role="Delegate",
+            speakerNum=3,
+        )
+        self.client.login(username="moderator@example.com", password="password")
+
+    def test_create_discussion_from_page_form(self):
+        response = self.client.post(
+            "/speaker_list/",
+            {
+                "title": "Budget discussion",
+                "discussion_type": "informal",
+                "default_speaker_seconds": 90,
+            },
+        )
+
+        discussion = Discussion.objects.get()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(discussion.moderator, self.moderator)
+        self.assertEqual(discussion.default_speaker_seconds, 90)
+        self.assertTrue(DiscussionParticipant.objects.filter(discussion=discussion, delegate=self.moderator).exists())
+
+    def test_formal_discussion_rejects_non_rep_speaker(self):
+        discussion = Discussion.objects.create(
+            title="Formal debate",
+            moderator=self.moderator,
+            discussion_type=Discussion.TYPE_FORMAL,
+            default_speaker_seconds=60,
+        )
+        DiscussionParticipant.objects.create(discussion=discussion, delegate=self.non_rep)
+
+        response = self.client.post(
+            "/ajax/discussionAddSpeaker/",
+            {"discussionId": discussion.id, "delegateId": self.non_rep.id},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(DiscussionSpeaker.objects.count(), 0)
+        self.assertEqual(response.json()["error"], "formal_requires_rep")
+
+    def test_moderator_can_add_participant_to_informal_speaker_list(self):
+        discussion = Discussion.objects.create(
+            title="Informal discussion",
+            moderator=self.moderator,
+            discussion_type=Discussion.TYPE_INFORMAL,
+            default_speaker_seconds=45,
+        )
+        DiscussionParticipant.objects.create(discussion=discussion, delegate=self.non_rep)
+
+        response = self.client.post(
+            "/ajax/discussionAddSpeaker/",
+            {"discussionId": discussion.id, "delegateId": self.non_rep.id},
+        )
+
+        speaker = DiscussionSpeaker.objects.get()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(speaker.delegate, self.non_rep)
+        self.assertEqual(speaker.duration_seconds, 45)
+
+    def test_start_timer_promotes_next_waiting_speaker(self):
+        discussion = Discussion.objects.create(
+            title="Timer discussion",
+            moderator=self.moderator,
+            discussion_type=Discussion.TYPE_INFORMAL,
+            default_speaker_seconds=30,
+        )
+        speaker = DiscussionSpeaker.objects.create(
+            discussion=discussion,
+            delegate=self.rep,
+            index=1,
+            duration_seconds=75,
+        )
+
+        response = self.client.post(
+            "/ajax/discussionTimerAction/",
+            {"discussionId": discussion.id, "action": "start"},
+        )
+
+        discussion.refresh_from_db()
+        speaker.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(discussion.active)
+        self.assertTrue(discussion.timer_running)
+        self.assertEqual(discussion.current_speaker_id, speaker.id)
+        self.assertEqual(discussion.timer_remaining_seconds, 75)
+        self.assertEqual(speaker.status, DiscussionSpeaker.STATUS_CURRENT)

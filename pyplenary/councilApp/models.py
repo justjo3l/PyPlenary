@@ -1,6 +1,7 @@
 from django import forms
 from django.db import models
 from django.contrib.auth.models import User
+from django.utils import timezone
 
 class Institution(models.Model):
     id = models.AutoField(primary_key=True)
@@ -36,6 +37,17 @@ class Delegate(models.Model):
     def __str__(self):
         output = f'{self.name} ({self.institution.shortName})'
         return output
+
+    def to_json(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'role': self.role,
+            'speakerNum': self.speakerNum,
+            'first_time': self.first_time,
+            'rep': self.rep,
+            'institution': self.institution.shortName if self.institution else '',
+        }
 
 class Poll(models.Model):
     id = models.AutoField(primary_key=True)
@@ -128,7 +140,7 @@ class PendingRego(models.Model):
 
 
 class Speaker(models.Model):
-    """An entry on the Speaker List"""
+    """Legacy single-room speaker queue entry."""
     id = models.AutoField(primary_key=True)
     delegate = models.ForeignKey(Delegate, models.CASCADE)
     index = models.IntegerField()
@@ -139,7 +151,7 @@ class Speaker(models.Model):
         db_table = 'Speaker'
         ordering = ['index']
     
-    # For speaker list websockets
+    # For legacy speaker queue websockets
     
     @staticmethod
     def speakers_for_ws():
@@ -151,4 +163,139 @@ class Speaker(models.Model):
             'index': self.index,
             'intention': self.intention,
             'node': self.node.shortName if self.node is not None else '',
+        }
+
+
+class Discussion(models.Model):
+    TYPE_INFORMAL = 'informal'
+    TYPE_FORMAL = 'formal'
+    DISCUSSION_TYPE_CHOICES = [
+        (TYPE_INFORMAL, 'Informal'),
+        (TYPE_FORMAL, 'Formal'),
+    ]
+
+    title = models.CharField(max_length=200)
+    moderator = models.ForeignKey(Delegate, models.CASCADE, related_name='moderated_discussions')
+    discussion_type = models.CharField(max_length=20, choices=DISCUSSION_TYPE_CHOICES, default=TYPE_INFORMAL)
+    default_speaker_seconds = models.PositiveIntegerField(default=60)
+    active = models.BooleanField(default=False)
+    archived = models.BooleanField(default=False)
+    current_speaker = models.ForeignKey('DiscussionSpeaker', models.SET_NULL, null=True, blank=True, related_name='current_for_discussions')
+    timer_running = models.BooleanField(default=False)
+    timer_started_at = models.DateTimeField(null=True, blank=True)
+    timer_remaining_seconds = models.PositiveIntegerField(default=60)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'Discussion'
+        ordering = ['-active', '-created_at']
+
+    def __str__(self):
+        return self.title
+
+    def user_can_moderate(self, delegate):
+        return delegate is not None and (self.moderator_id == delegate.id or delegate.superadmin)
+
+    def timer_remaining(self):
+        if not self.timer_running or not self.timer_started_at:
+            return self.timer_remaining_seconds
+        elapsed = int((timezone.now() - self.timer_started_at).total_seconds())
+        return max(0, self.timer_remaining_seconds - elapsed)
+
+    def next_waiting_speaker(self):
+        return self.speakers.filter(status=DiscussionSpeaker.STATUS_WAITING).order_by('index').first()
+
+    @staticmethod
+    def discussions_for_ws(delegate=None):
+        discussions = Discussion.objects.filter(archived=False).select_related(
+            'moderator',
+            'moderator__institution',
+            'current_speaker',
+            'current_speaker__delegate',
+            'current_speaker__delegate__institution',
+        ).prefetch_related(
+            'participants__delegate',
+            'participants__delegate__institution',
+            'speakers__delegate',
+            'speakers__delegate__institution',
+        )
+        return [discussion.to_json(delegate) for discussion in discussions]
+
+    def to_json(self, delegate=None):
+        participants = [participant.to_json() for participant in self.participants.all()]
+        speakers = [speaker.to_json() for speaker in self.speakers.all().order_by('index')]
+        current = self.current_speaker.to_json() if self.current_speaker else None
+        next_speaker = self.next_waiting_speaker()
+        return {
+            'id': self.id,
+            'title': self.title,
+            'moderator': self.moderator.to_json(),
+            'discussion_type': self.discussion_type,
+            'default_speaker_seconds': self.default_speaker_seconds,
+            'active': self.active,
+            'timer_running': self.timer_running,
+            'timer_remaining_seconds': self.timer_remaining(),
+            'current_speaker': current,
+            'next_speaker': next_speaker.to_json() if next_speaker else None,
+            'participants': participants,
+            'speakers': speakers,
+            'user_is_moderator': self.user_can_moderate(delegate),
+            'user_is_participant': any(participant['delegate']['id'] == getattr(delegate, 'id', None) for participant in participants),
+            'user_is_on_speaker_list': any(speaker['delegate']['id'] == getattr(delegate, 'id', None) and speaker['status'] in ('waiting', 'current') for speaker in speakers),
+        }
+
+
+class DiscussionParticipant(models.Model):
+    discussion = models.ForeignKey(Discussion, models.CASCADE, related_name='participants')
+    delegate = models.ForeignKey(Delegate, models.CASCADE, related_name='discussion_participations')
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'DiscussionParticipant'
+        unique_together = ('discussion', 'delegate')
+        ordering = ['joined_at']
+
+    def __str__(self):
+        return f'{self.delegate.name} in {self.discussion.title}'
+
+    def to_json(self):
+        return {
+            'id': self.id,
+            'delegate': self.delegate.to_json(),
+        }
+
+
+class DiscussionSpeaker(models.Model):
+    STATUS_WAITING = 'waiting'
+    STATUS_CURRENT = 'current'
+    STATUS_DONE = 'done'
+    STATUS_SKIPPED = 'skipped'
+    STATUS_CHOICES = [
+        (STATUS_WAITING, 'Waiting'),
+        (STATUS_CURRENT, 'Current'),
+        (STATUS_DONE, 'Done'),
+        (STATUS_SKIPPED, 'Skipped'),
+    ]
+
+    discussion = models.ForeignKey(Discussion, models.CASCADE, related_name='speakers')
+    delegate = models.ForeignKey(Delegate, models.CASCADE, related_name='discussion_speaker_entries')
+    index = models.IntegerField()
+    duration_seconds = models.PositiveIntegerField(default=60)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_WAITING)
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'DiscussionSpeaker'
+        ordering = ['index']
+
+    def __str__(self):
+        return f'{self.delegate.name} speaking in {self.discussion.title}'
+
+    def to_json(self):
+        return {
+            'id': self.id,
+            'delegate': self.delegate.to_json(),
+            'index': self.index,
+            'duration_seconds': self.duration_seconds,
+            'status': self.status,
         }

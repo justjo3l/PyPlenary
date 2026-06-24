@@ -3,8 +3,6 @@ import json
 from asgiref.sync import async_to_sync
 from channels.generic.websocket import WebsocketConsumer
 
-from django.core.cache import caches
-
 from .models import *
 
 class SpeakerListConsumer(WebsocketConsumer):
@@ -13,12 +11,12 @@ class SpeakerListConsumer(WebsocketConsumer):
             self.close()
             return
 
-        async_to_sync(self.channel_layer.group_add)('speakerlist', self.channel_name)
+        async_to_sync(self.channel_layer.group_add)('discussions', self.channel_name)
         self.accept()
         
         delegate = self.scope['user'].delegate
-        speakers = Speaker.speakers_for_ws()
-        self.send(text_data=json.dumps({'type': 'init', 'delegate_id': delegate.id, 'mode': caches['default'].get('speaker_mode', 'standard'), 'speakerlist': speakers}))
+        discussions = Discussion.discussions_for_ws(delegate)
+        self.send(text_data=json.dumps({'type': 'init', 'delegate_id': delegate.id, 'discussions': discussions}))
 
     def disconnect(self, code):
         pass
@@ -26,5 +24,10 @@ class SpeakerListConsumer(WebsocketConsumer):
     def receive(self, text_data):
         pass
 
-    def speakerlist_updated(self, data):
-        self.send(text_data=json.dumps(data))
+    def discussions_updated(self, data):
+        delegate = self.scope['user'].delegate
+        self.send(text_data=json.dumps({
+            'type': 'discussions_updated',
+            'delegate_id': delegate.id,
+            'discussions': Discussion.discussions_for_ws(delegate),
+        }))
