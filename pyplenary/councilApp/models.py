@@ -218,6 +218,23 @@ class AgendaItem(models.Model):
     def __str__(self):
         return self.title
 
+    @property
+    def display_color(self):
+        bootstrap_colors = {
+            'primary': '#0d6efd',
+            'secondary': '#6c757d',
+            'success': '#198754',
+            'danger': '#dc3545',
+            'warning': '#ffc107',
+            'info': '#0dcaf0',
+            'light': '#f8f9fa',
+            'dark': '#212529',
+        }
+        color = (self.color or '').strip()
+        if color.startswith('#') and len(color) in {4, 7}:
+            return color
+        return bootstrap_colors.get(color, '#0d6efd')
+
     def links_list(self):
         return [line.strip() for line in self.links.splitlines() if line.strip()]
 

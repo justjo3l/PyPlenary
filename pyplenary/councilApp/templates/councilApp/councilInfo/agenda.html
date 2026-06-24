@@ -9,16 +9,30 @@
     <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
       <h2 class="mb-0" style="flex-grow:1">Agenda</h2>
       {% if can_edit_agenda %}
-        <button class="btn btn-success btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#agendaEditor">Edit Agenda</button>
+        <button class="btn btn-success btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#agendaEditor" aria-expanded="{% if edit_agenda %}true{% else %}false{% endif %}" aria-controls="agendaEditor">Edit Agenda</button>
       {% endif %}
     </div>
 
     <p>All times are shown in {{ PYPLENARY_TZ }}.</p>
 
     {% if can_edit_agenda %}
-      <div class="collapse mb-4" id="agendaEditor">
+      <div class="collapse{% if edit_agenda %} show{% endif %} mb-4" id="agendaEditor">
         <div class="border rounded p-3">
-          <h4>Create Day</h4>
+          <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center mb-3">
+            <h4 class="mb-0">Agenda Editor</h4>
+            <button class="btn btn-outline-secondary btn-sm" type="button" id="exitAgendaEditor">Exit Editor</button>
+          </div>
+
+          <div class="alert alert-info">
+            <h5 class="alert-heading">Admin how-to</h5>
+            <p class="mb-2">Create one day for a single-day agenda, or multiple days if council runs across more than one day. If there is only one day, the public page hides the day tabs automatically.</p>
+            <p class="mb-2"><strong>Day title</strong> is the tab label, <strong>Date</strong> is the date text shown above the timeline, and <strong>Order</strong> controls which day appears first. Lower numbers appear first.</p>
+            <p class="mb-2"><strong>Time</strong> appears beside the agenda entry, <strong>Title</strong> is the main heading, <strong>Color</strong> controls the timeline dot and badge colour, and <strong>Order</strong> controls item position within the day.</p>
+            <p class="mb-2"><strong>Badge</strong> is a short coloured pill beside the title, useful for labels like Vote, Break, Closed, Workshop, or Action. <strong>Category</strong> is a neutral tag for grouping, such as Governance, Policy, Welfare, or Training.</p>
+            <p class="mb-0"><strong>Content</strong> supports markdown for the agenda description. <strong>Links</strong> supports one markdown link or plain URL per line. Save each day or item after editing it.</p>
+          </div>
+
+          <h5>Create Day</h5>
           <form method="post" class="row g-2 mb-4">
             {% csrf_token %}
             <input type="hidden" name="action" value="create_day">
@@ -51,7 +65,10 @@
                   <div class="row g-2">
                     <div class="col-6 col-md-2"><input class="form-control" name="time" value="{{ item.time }}" placeholder="Time"></div>
                     <div class="col-12 col-md-5"><input class="form-control" name="title" value="{{ item.title }}" placeholder="Title"></div>
-                    <div class="col-6 col-md-2"><input class="form-control" name="color" value="{{ item.color }}" placeholder="Color"></div>
+                    <div class="col-6 col-md-2">
+                      <label class="form-label small mb-1">Color</label>
+                      <input class="form-control form-control-color w-100" type="color" name="color" value="{{ item.display_color }}" title="Timeline and badge color">
+                    </div>
                     <div class="col-6 col-md-2"><input class="form-control" type="number" name="order" value="{{ item.order }}" placeholder="Order"></div>
                     <div class="col-12 col-md-1"><button class="btn btn-primary w-100" type="submit">Save</button></div>
                     <div class="col-6 col-md-3"><input class="form-control" name="badge" value="{{ item.badge }}" placeholder="Badge"></div>
@@ -70,12 +87,15 @@
                 <div class="row g-2">
                   <div class="col-6 col-md-2"><input class="form-control" name="time" placeholder="Time"></div>
                   <div class="col-12 col-md-5"><input class="form-control" name="title" placeholder="Title"></div>
-                  <div class="col-6 col-md-2"><input class="form-control" name="color" placeholder="Color"></div>
+                  <div class="col-6 col-md-2">
+                    <label class="form-label small mb-1">Color</label>
+                    <input class="form-control form-control-color w-100" type="color" name="color" value="#0d6efd" title="Timeline and badge color">
+                  </div>
                   <div class="col-6 col-md-2"><input class="form-control" type="number" name="order" placeholder="Order"></div>
                   <div class="col-12 col-md-1"><button class="btn btn-success w-100" type="submit">Add</button></div>
                   <div class="col-6 col-md-3"><input class="form-control" name="badge" placeholder="Badge"></div>
                   <div class="col-6 col-md-3"><input class="form-control" name="category" placeholder="Category"></div>
-                  <div class="col-12 col-md-6"><input class="form-control" name="links" placeholder="Links, one per line"></div>
+                  <div class="col-12 col-md-6"><textarea class="form-control" name="links" rows="2" placeholder="Links, one per line"></textarea></div>
                   <div class="col-12"><textarea class="form-control" name="content" rows="3" placeholder="Content"></textarea></div>
                 </div>
               </form>
@@ -105,11 +125,11 @@
             <div class="timeline mt-4">
               {% for item in day.items.all %}
                 <div>
-                  {% if item.color %}<span class="badge badge-dot bg-{{ item.color }}"><i></i></span>{% endif %}
+                  <span class="badge badge-dot" style="background-color: {{ item.display_color }};"><i></i></span>
                   <div class="content">
                     <div class="h5">
                       {{ item.title }}
-                      {% if item.badge %}<span class="badge bg-{{ item.color|default:'secondary' }}">{{ item.badge }}</span>{% endif %}
+                      {% if item.badge %}<span class="badge" style="background-color: {{ item.display_color }};">{{ item.badge }}</span>{% endif %}
                       {% if item.category %}<span class="badge bg-light text-dark border">{{ item.category }}</span>{% endif %}
                     </div>
                     {% for link in item.links_list %}<p class="small text-muted"><i class="bi bi-link-45deg"></i> {{ link|markdown|nopar }}</p>{% endfor %}
@@ -128,4 +148,61 @@
       </div>
     {% endif %}
   </div>
+
+  {% if can_edit_agenda %}
+    <div class="modal fade" id="agendaExitModal" tabindex="-1" aria-labelledby="agendaExitModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="agendaExitModalLabel">Unsaved agenda changes</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            Are you sure you want to exit without saving?
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Keep editing</button>
+            <button type="button" class="btn btn-danger" id="confirmExitAgendaEditor">Exit without saving</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (() => {
+        const editor = document.getElementById('agendaEditor');
+        const exitButton = document.getElementById('exitAgendaEditor');
+        const confirmExitButton = document.getElementById('confirmExitAgendaEditor');
+        const modalElement = document.getElementById('agendaExitModal');
+        if (!editor || !exitButton || !confirmExitButton || !modalElement || !window.bootstrap) return;
+
+        let isDirty = false;
+        const exitModal = bootstrap.Modal.getOrCreateInstance(modalElement);
+        const editorCollapse = bootstrap.Collapse.getOrCreateInstance(editor, { toggle: false });
+
+        editor.querySelectorAll('input, textarea, select').forEach((field) => {
+          field.addEventListener('input', () => { isDirty = true; });
+          field.addEventListener('change', () => { isDirty = true; });
+        });
+
+        editor.querySelectorAll('form').forEach((form) => {
+          form.addEventListener('submit', () => { isDirty = false; });
+        });
+
+        exitButton.addEventListener('click', () => {
+          if (isDirty) {
+            exitModal.show();
+            return;
+          }
+          editorCollapse.hide();
+        });
+
+        confirmExitButton.addEventListener('click', () => {
+          isDirty = false;
+          exitModal.hide();
+          editorCollapse.hide();
+        });
+      })();
+    </script>
+  {% endif %}
 {% endblock %}

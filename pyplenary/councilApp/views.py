@@ -978,7 +978,7 @@ def agenda(request):
             item.save()
         elif action == 'delete_item':
             AgendaItem.objects.filter(id=request.POST.get('item_id')).delete()
-        return redirect('/agenda/')
+        return redirect('/agenda/?edit=1')
 
     days = AgendaDay.objects.prefetch_related('items').all()
     return render(request, 'councilApp/councilInfo/agenda.html', {
@@ -986,6 +986,7 @@ def agenda(request):
         'days': days,
         'can_edit_agenda': can_edit,
         'show_day_tabs': days.count() > 1,
+        'edit_agenda': request.GET.get('edit') == '1',
     })
 
 def loginCustom(request):
