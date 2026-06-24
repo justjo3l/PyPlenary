@@ -256,11 +256,19 @@ else:
 RESEND_API_KEY = env("RESEND_API_KEY")
 RESEND_API_URL = env("RESEND_API_URL", "https://api.resend.com/emails")
 RESEND_TIMEOUT = int(env("RESEND_TIMEOUT", "10"))
+GMAIL_CLIENT_ID = env("GMAIL_CLIENT_ID")
+GMAIL_CLIENT_SECRET = env("GMAIL_CLIENT_SECRET")
+GMAIL_REFRESH_TOKEN = env("GMAIL_REFRESH_TOKEN")
+GMAIL_TOKEN_URL = env("GMAIL_TOKEN_URL", "https://oauth2.googleapis.com/token")
+GMAIL_SEND_URL = env("GMAIL_SEND_URL", "https://gmail.googleapis.com/gmail/v1/users/me/messages/send")
+GMAIL_API_TIMEOUT = int(env("GMAIL_API_TIMEOUT", "10"))
 EMAIL_PROVIDER = env("EMAIL_PROVIDER", "smtp").lower()
 
 default_email_backend = "django.core.mail.backends.console.EmailBackend"
 if not DJANGO_DEVELOPMENT:
-    if EMAIL_PROVIDER == "resend":
+    if EMAIL_PROVIDER == "gmail_api":
+        default_email_backend = "councilApp.email_backends.GmailAPIEmailBackend"
+    elif EMAIL_PROVIDER == "resend":
         default_email_backend = "councilApp.email_backends.ResendEmailBackend"
     else:
         default_email_backend = "django.core.mail.backends.smtp.EmailBackend"

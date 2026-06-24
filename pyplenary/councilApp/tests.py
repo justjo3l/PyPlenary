@@ -39,6 +39,52 @@ class ResendEmailBackendTests(TestCase):
         self.assertEqual(kwargs["json"]["html"], "<p>HTML body</p>")
 
 
+class GmailAPIEmailBackendTests(TestCase):
+    @override_settings(
+        EMAIL_BACKEND="councilApp.email_backends.GmailAPIEmailBackend",
+        GMAIL_CLIENT_ID="client-id",
+        GMAIL_CLIENT_SECRET="client-secret",
+        GMAIL_REFRESH_TOKEN="refresh-token",
+        GMAIL_TOKEN_URL="https://oauth2.test/token",
+        GMAIL_SEND_URL="https://gmail.test/send",
+        GMAIL_API_TIMEOUT=5,
+        DEFAULT_FROM_EMAIL="amsaassistant@gmail.com",
+    )
+    @patch("councilApp.email_backends.requests.post")
+    def test_send_mail_refreshes_token_and_posts_raw_message(self, mock_post):
+        token_response = Mock()
+        token_response.status_code = 200
+        token_response.json.return_value = {"access_token": "access-token"}
+        token_response.raise_for_status.return_value = None
+
+        send_response = Mock()
+        send_response.status_code = 200
+        send_response.raise_for_status.return_value = None
+
+        mock_post.side_effect = [token_response, send_response]
+
+        sent_count = send_mail(
+            "Activation",
+            "Plain text body",
+            "amsaassistant@gmail.com",
+            ["delegate@example.com"],
+            html_message="<p>HTML body</p>",
+        )
+
+        self.assertEqual(sent_count, 1)
+        self.assertEqual(mock_post.call_count, 2)
+
+        token_call = mock_post.call_args_list[0]
+        self.assertEqual(token_call.args[0], "https://oauth2.test/token")
+        self.assertEqual(token_call.kwargs["data"]["refresh_token"], "refresh-token")
+        self.assertEqual(token_call.kwargs["data"]["grant_type"], "refresh_token")
+
+        send_call = mock_post.call_args_list[1]
+        self.assertEqual(send_call.args[0], "https://gmail.test/send")
+        self.assertEqual(send_call.kwargs["headers"]["Authorization"], "Bearer access-token")
+        self.assertIn("raw", send_call.kwargs["json"])
+
+
 class AdminWithoutDelegateTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_superuser(

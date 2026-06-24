@@ -37,35 +37,56 @@ Important variables:
 - `SECRET_KEY`, `COUNCIL_URL`, `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`
 - `PGHOST`, `PGDATABASE`, `PGUSER`, `DBPASS`, `PGPORT`
 - `REDIS_URL` for production WebSocket fanout
-- `EMAIL_PROVIDER`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `DEFAULT_FROM_EMAIL` for email delivery
+- `EMAIL_PROVIDER`, `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, `DEFAULT_FROM_EMAIL` for email delivery
 - `PYPLENARY_AGENDA_URI`, `PYPLENARY_REPORTS_URI`, `PYPLENARY_POLICIES_URI`, `PYPLENARY_SOCIALS_URI`, `PYPLENARY_NODES_URI`
 - `PYPLENARY_ADMIN_NAME`, `PYPLENARY_ADMIN_EMAIL`, `PYPLENARY_SUPPORT_EMAIL`
 
 ## Email Delivery
 
-Production email is configured through Django's email backend. This deployment currently uses Gmail SMTP.
+Production email is configured through Django's email backend. This deployment uses the Gmail API over HTTPS so it can send from `amsaassistant@gmail.com` without relying on blocked SMTP ports.
 
 Railway variables:
 
 ```text
-EMAIL_PROVIDER=smtp
+EMAIL_PROVIDER=gmail_api
 EMAIL_BACKEND=
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_USE_SSL=0
-EMAIL_USE_TLS=1
-EMAIL_HOST_USER=amsaassistant@gmail.com
-EMAIL_HOST_PASSWORD=<gmail-app-password-without-spaces>
+GMAIL_CLIENT_ID=<google-oauth-client-id>
+GMAIL_CLIENT_SECRET=<google-oauth-client-secret>
+GMAIL_REFRESH_TOKEN=<google-oauth-refresh-token>
 DEFAULT_FROM_EMAIL=amsaassistant@gmail.com
-EMAIL_TIMEOUT=10
+GMAIL_API_TIMEOUT=10
 PYPLENARY_SUPPORT_EMAIL=amsaassistant@gmail.com
 PYPLENARY_ADMIN_EMAIL=amsaassistant@gmail.com
 PYPLENARY_ADMIN_NAME=Joel Jose
 ```
 
-For Gmail, `EMAIL_HOST_PASSWORD` must be a Google app password, not the normal Gmail password. Google displays app passwords in groups with spaces; enter it in Railway without spaces.
+Remove these Railway variables if they were set for SMTP or Resend:
 
-If you previously tested Resend, either remove `RESEND_API_KEY` or leave `EMAIL_PROVIDER=smtp`. Resend is only used when `EMAIL_PROVIDER=resend`.
+```text
+EMAIL_HOST
+EMAIL_PORT
+EMAIL_USE_SSL
+EMAIL_USE_TLS
+EMAIL_HOST_USER
+EMAIL_HOST_PASSWORD
+EMAIL_TIMEOUT
+RESEND_API_KEY
+RESEND_API_URL
+RESEND_TIMEOUT
+```
+
+How to get the Gmail API values:
+
+1. In Google Cloud Console, create/select a project.
+2. Enable the Gmail API.
+3. Configure the OAuth consent screen. Add `amsaassistant@gmail.com` as a test user if the app is in testing mode.
+4. Create an OAuth Client ID for a desktop app.
+5. Use the OAuth playground or a local OAuth script to grant the `https://www.googleapis.com/auth/gmail.send` scope to `amsaassistant@gmail.com`.
+6. Exchange the authorization code for a refresh token.
+
+The refresh token is long-lived unless revoked. Keep `GMAIL_CLIENT_SECRET` and `GMAIL_REFRESH_TOKEN` private.
+
+Resend remains available only if `EMAIL_PROVIDER=resend`. SMTP remains available only if `EMAIL_PROVIDER=smtp`.
 
 To test without sending real email, set:
 
