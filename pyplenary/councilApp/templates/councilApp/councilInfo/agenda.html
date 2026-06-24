@@ -9,7 +9,7 @@
     <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
       <h2 class="mb-0" style="flex-grow:1">Agenda</h2>
       {% if can_edit_agenda %}
-        <button class="btn btn-success btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#agendaEditor" aria-expanded="{% if edit_agenda %}true{% else %}false{% endif %}" aria-controls="agendaEditor">Edit Agenda</button>
+        <button class="btn btn-success btn-sm{% if edit_agenda %} d-none{% endif %}" type="button" id="editAgendaButton" data-bs-toggle="collapse" data-bs-target="#agendaEditor" aria-expanded="{% if edit_agenda %}true{% else %}false{% endif %}" aria-controls="agendaEditor">Edit Agenda</button>
       {% endif %}
     </div>
 
@@ -93,48 +93,50 @@
       </div>
     {% endif %}
 
-    {% if not days %}
-      <div class="alert alert-secondary">No agenda has been published yet.</div>
-    {% else %}
-      {% if show_day_tabs %}
-        <ul class="nav nav-tabs">
-          {% for day in days %}
-            <li class="nav-item">
-              <button class="nav-link{% if forloop.first %} active{% endif %}" data-bs-toggle="tab" data-bs-target="#day-{{ day.id }}">{{ day.title }}</button>
-            </li>
-          {% endfor %}
-        </ul>
-      {% endif %}
+    <div id="agendaPreview">
+      {% if not days %}
+        <div class="alert alert-secondary">No agenda has been published yet.</div>
+      {% else %}
+        {% if show_day_tabs %}
+          <ul class="nav nav-tabs">
+            {% for day in days %}
+              <li class="nav-item">
+                <button class="nav-link{% if forloop.first %} active{% endif %}" data-bs-toggle="tab" data-bs-target="#day-{{ day.id }}">{{ day.title }}</button>
+              </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
 
-      <div class="tab-content">
-        {% for day in days %}
-          <div class="tab-pane fade{% if forloop.first %} show active{% endif %}" id="day-{{ day.id }}">
-            {% if show_day_tabs %}<h4 class="mt-4">{{ day.date }}</h4>{% else %}{% if day.date %}<h4>{{ day.date }}</h4>{% endif %}{% endif %}
-            <div class="timeline mt-4">
-              {% for item in day.items.all %}
-                <div>
-                  <span class="badge badge-dot" style="background-color: {{ item.display_color }};"><i></i></span>
-                  <div class="content">
-                    <div class="h5">
-                      {{ item.title }}
-                      {% if item.badge %}<span class="badge" style="background-color: {{ item.display_color }};">{{ item.badge }}</span>{% endif %}
-                      {% if item.category %}<span class="badge bg-light text-dark border">{{ item.category }}</span>{% endif %}
+        <div class="tab-content">
+          {% for day in days %}
+            <div class="tab-pane fade{% if forloop.first %} show active{% endif %}" id="day-{{ day.id }}">
+              {% if show_day_tabs %}<h4 class="mt-4">{{ day.date }}</h4>{% else %}{% if day.date %}<h4>{{ day.date }}</h4>{% endif %}{% endif %}
+              <div class="timeline mt-4">
+                {% for item in day.items.all %}
+                  <div>
+                    <span class="badge badge-dot" style="background-color: {{ item.display_color }};"><i></i></span>
+                    <div class="content">
+                      <div class="h5">
+                        {{ item.title }}
+                        {% if item.badge %}<span class="badge" style="background-color: {{ item.display_color }};">{{ item.badge }}</span>{% endif %}
+                        {% if item.category %}<span class="badge bg-light text-dark border">{{ item.category }}</span>{% endif %}
+                      </div>
+                      {% for link in item.links_list %}<p class="small text-muted"><i class="bi bi-link-45deg"></i> {{ link|markdown|nopar }}</p>{% endfor %}
+                      {% if item.content %}{{ item.content|markdown }}{% endif %}
                     </div>
-                    {% for link in item.links_list %}<p class="small text-muted"><i class="bi bi-link-45deg"></i> {{ link|markdown|nopar }}</p>{% endfor %}
-                    {% if item.content %}{{ item.content|markdown }}{% endif %}
+                    {% if item.time %}
+                      <span class="time text-muted">{{ item.time|timeline_time }}</span>
+                    {% endif %}
                   </div>
-                  {% if item.time %}
-                    <span class="time text-muted">{{ item.time|timeline_time }}</span>
-                  {% endif %}
-                </div>
-              {% empty %}
-                <div class="alert alert-secondary">No agenda items for this day yet.</div>
-              {% endfor %}
+                {% empty %}
+                  <div class="alert alert-secondary">No agenda items for this day yet.</div>
+                {% endfor %}
+              </div>
             </div>
-          </div>
-        {% endfor %}
-      </div>
-    {% endif %}
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
   </div>
 
   {% if can_edit_agenda %}
@@ -156,28 +158,139 @@
       </div>
     </div>
 
+  {% endif %}
+{% endblock %}
+
+{% block script %}
+  {{ block.super }}
+  {% if can_edit_agenda %}
     <script>
-      (() => {
+      document.addEventListener('DOMContentLoaded', () => {
         const editor = document.getElementById('agendaEditor');
         const form = document.getElementById('agendaBulkForm');
         const daysContainer = document.getElementById('agendaDays');
+        const preview = document.getElementById('agendaPreview');
+        const editAgendaButton = document.getElementById('editAgendaButton');
         const addDayButton = document.getElementById('addDayButton');
         const saveButton = document.getElementById('saveAgendaButton');
         const saveStatus = document.getElementById('agendaSaveStatus');
         const exitButton = document.getElementById('exitAgendaEditor');
         const confirmExitButton = document.getElementById('confirmExitAgendaEditor');
         const modalElement = document.getElementById('agendaExitModal');
-        if (!editor || !form || !daysContainer || !addDayButton || !exitButton || !confirmExitButton || !modalElement || !window.bootstrap) return;
+        if (!editor || !form || !daysContainer || !preview || !addDayButton || !exitButton || !confirmExitButton || !modalElement) return;
 
         let isDirty = false;
         let needsPreviewRefresh = false;
-        const exitModal = bootstrap.Modal.getOrCreateInstance(modalElement);
-        const editorCollapse = bootstrap.Collapse.getOrCreateInstance(editor, { toggle: false });
+        const savedPreviewHtml = preview.innerHTML;
+        const makeBootstrapInstance = (component, element, options = {}) => {
+          if (!window.bootstrap || !component) return null;
+          if (component.getOrCreateInstance) return component.getOrCreateInstance(element, options);
+          if (component.getInstance?.(element)) return component.getInstance(element);
+          return new component(element, options);
+        };
+        const exitModal = makeBootstrapInstance(window.bootstrap?.Modal, modalElement);
+        const editorCollapse = makeBootstrapInstance(window.bootstrap?.Collapse, editor, { toggle: false });
 
         const uniqueKey = (prefix) => `${prefix}-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+        const escapeHtml = (value) => {
+          const element = document.createElement('div');
+          element.textContent = value || '';
+          return element.innerHTML;
+        };
+        const paragraphsFromText = (value) => {
+          return (value || '')
+            .split(/\n{2,}/)
+            .map((paragraph) => paragraph.trim())
+            .filter(Boolean)
+            .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, '<br>')}</p>`)
+            .join('');
+        };
+        const previewLinkHtml = (value) => {
+          return (value || '')
+            .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .map((line) => {
+              const markdownMatch = line.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+              const label = markdownMatch ? markdownMatch[1] : line;
+              const href = markdownMatch ? markdownMatch[2] : line;
+              const isUrl = /^https?:\/\//i.test(href);
+              const link = isUrl
+                ? `<a href="${escapeHtml(href)}" target="_blank" rel="noopener">${escapeHtml(label)}</a>`
+                : escapeHtml(label);
+              return `<p class="small text-muted"><i class="bi bi-link-45deg"></i> ${link}</p>`;
+            })
+            .join('');
+        };
+        const sortedByOrder = (items, selector) => {
+          return [...items].sort((a, b) => {
+            const aOrder = parseInt(a.querySelector(selector)?.value || '0', 10) || 0;
+            const bOrder = parseInt(b.querySelector(selector)?.value || '0', 10) || 0;
+            return aOrder - bOrder;
+          });
+        };
+        const setEditingMode = (isEditing) => {
+          if (editAgendaButton) editAgendaButton.classList.toggle('d-none', isEditing);
+          if (!isEditing) preview.innerHTML = savedPreviewHtml;
+        };
+        const renderPreview = () => {
+          const dayCards = sortedByOrder(daysContainer.querySelectorAll('.agenda-day-card'), 'input[name="day_order"]');
+          if (!dayCards.length) {
+            preview.innerHTML = '<div class="alert alert-secondary">No agenda has been published yet.</div>';
+            return;
+          }
+
+          const daySections = dayCards.map((dayCard, dayIndex) => {
+            const title = dayCard.querySelector('input[name="day_title"]')?.value.trim() || 'New Day';
+            const date = dayCard.querySelector('input[name="day_date"]')?.value.trim();
+            const events = sortedByOrder(dayCard.querySelectorAll('.agenda-event-card'), 'input[name="item_order"]');
+            const eventHtml = events.length
+              ? events.map((eventCard) => {
+                  const time = eventCard.querySelector('input[name="item_time"]')?.value.trim();
+                  const eventTitle = eventCard.querySelector('input[name="item_title"]')?.value.trim() || 'New Event';
+                  const color = eventCard.querySelector('input[name="item_color"]')?.value || '#0d6efd';
+                  const badge = eventCard.querySelector('input[name="item_badge"]')?.value.trim();
+                  const category = eventCard.querySelector('input[name="item_category"]')?.value.trim();
+                  const links = eventCard.querySelector('textarea[name="item_links"]')?.value || '';
+                  const content = eventCard.querySelector('textarea[name="item_content"]')?.value || '';
+                  return `
+                    <div>
+                      <span class="badge badge-dot" style="background-color: ${escapeHtml(color)};"><i></i></span>
+                      <div class="content">
+                        <div class="h5">
+                          ${escapeHtml(eventTitle)}
+                          ${badge ? `<span class="badge" style="background-color: ${escapeHtml(color)};">${escapeHtml(badge)}</span>` : ''}
+                          ${category ? `<span class="badge bg-light text-dark border">${escapeHtml(category)}</span>` : ''}
+                        </div>
+                        ${previewLinkHtml(links)}
+                        ${paragraphsFromText(content)}
+                      </div>
+                      ${time ? `<span class="time text-muted">${escapeHtml(time)}</span>` : ''}
+                    </div>
+                  `;
+                }).join('')
+              : '<div class="alert alert-secondary">No agenda items for this day yet.</div>';
+            return `
+              <div class="${dayIndex > 0 ? 'mt-4 pt-3 border-top' : ''}">
+                ${dayCards.length > 1 ? `<h3>${escapeHtml(title)}</h3>` : ''}
+                ${date ? `<h4 class="${dayCards.length > 1 ? 'mt-2' : ''}">${escapeHtml(date)}</h4>` : ''}
+                <div class="timeline mt-4">${eventHtml}</div>
+              </div>
+            `;
+          }).join('');
+
+          preview.innerHTML = `
+            <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+              <h4 class="mb-0">Live Preview</h4>
+              <span class="badge bg-warning text-dark">Unsaved draft</span>
+            </div>
+            ${daySections}
+          `;
+        };
         const markDirty = () => {
           isDirty = true;
           if (saveStatus) saveStatus.textContent = 'Unsaved changes';
+          renderPreview();
         };
 
         const eventTemplate = (dayKey) => {
@@ -230,7 +343,6 @@
         };
 
         editor.addEventListener('input', (event) => {
-          markDirty();
           if (event.target.name === 'day_title') {
             const card = event.target.closest('.agenda-day-card');
             const heading = card?.querySelector('h5');
@@ -241,6 +353,7 @@
             const heading = card?.querySelector('strong');
             if (heading) heading.textContent = event.target.value || 'New Event';
           }
+          markDirty();
         });
 
         editor.addEventListener('change', markDirty);
@@ -313,22 +426,46 @@
 
         exitButton.addEventListener('click', () => {
           if (isDirty) {
-            exitModal.show();
+            if (exitModal) {
+              exitModal.show();
+            } else if (confirm('Are you sure you want to exit without saving?')) {
+              window.location.href = '/agenda/';
+            }
             return;
           }
           if (needsPreviewRefresh) {
             window.location.href = '/agenda/';
             return;
           }
-          editorCollapse.hide();
+          window.history.replaceState(null, '', '/agenda/');
+          setEditingMode(false);
+          if (editorCollapse) {
+            editorCollapse.hide();
+          } else {
+            editor.classList.remove('show');
+            editor.style.display = 'none';
+          }
         });
 
         confirmExitButton.addEventListener('click', () => {
           isDirty = false;
-          exitModal.hide();
+          if (exitModal) exitModal.hide();
           window.location.href = '/agenda/';
         });
-      })();
+
+        editor.addEventListener('shown.bs.collapse', () => {
+          setEditingMode(true);
+          renderPreview();
+        });
+        editor.addEventListener('hidden.bs.collapse', () => {
+          if (!isDirty && !needsPreviewRefresh) setEditingMode(false);
+        });
+
+        if (editor.classList.contains('show')) {
+          setEditingMode(true);
+          renderPreview();
+        }
+      });
     </script>
   {% endif %}
 {% endblock %}
