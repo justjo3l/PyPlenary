@@ -69,6 +69,15 @@ def discussion_moderator_options(discussion):
         id__in=[discussion.moderator_id] + list(discussion.additional_moderators.values_list('id', flat=True))
     ).exclude(speakerNum=0).order_by('name')
 
+
+def log_discussion_event(discussion, actor, event_type, message):
+    DiscussionEvent.objects.create(
+        discussion=discussion,
+        actor=actor,
+        event_type=event_type,
+        message=message[:500],
+    )
+
 def index(request):
     return render(request, 'councilApp/index.html', {'active_tab':'index'})
 
@@ -92,6 +101,7 @@ def discussions(request):
                 timer_remaining_seconds=discussionForm.cleaned_data['default_speaker_seconds'],
             )
             DiscussionParticipant.objects.get_or_create(discussion=discussion, delegate=delegate)
+            log_discussion_event(discussion, delegate, 'discussion_create', f'{delegate.name} created the discussion.')
             broadcast_discussions()
             return redirect(f'/discussions/{discussion.id}/')
     else:
@@ -118,6 +128,20 @@ def discussionDetail(request, discussion_id):
         'moderator_options': discussion_moderator_options(discussion),
     })
 
+
+@login_required
+def discussionLogs(request, discussion_id):
+    delegate = current_delegate(request)
+    discussion = discussion_or_404(discussion_id, include_archived=True)
+    if not discussion.user_can_moderate(delegate):
+        raise Http404()
+    events = discussion.events.select_related('actor', 'actor__institution').order_by('-created_at')[:500]
+    return render(request, 'councilApp/discussion_logs.html', {
+        'active_tab': 'discussions',
+        'discussion': discussion,
+        'events': events,
+    })
+
 @login_required
 @require_POST
 def ajaxDiscussionJoin(request):
@@ -126,6 +150,7 @@ def ajaxDiscussionJoin(request):
         return JsonResponse({'raise404': True})
     discussion = discussion_or_404(request.POST.get('discussionId'))
     DiscussionParticipant.objects.get_or_create(discussion=discussion, delegate=delegate)
+    log_discussion_event(discussion, delegate, 'join', f'{delegate.name} joined the discussion.')
     broadcast_discussions()
     return JsonResponse({'raise404': False})
 
@@ -149,6 +174,7 @@ def ajaxDiscussionExit(request):
         discussion.current_speaker = None
         discussion.timer_running = False
         discussion.save()
+    log_discussion_event(discussion, delegate, 'exit', f'{delegate.name} left the discussion.')
     broadcast_discussions()
     return JsonResponse({'raise404': False})
 
@@ -163,6 +189,40 @@ def ajaxDiscussionArchive(request):
     discussion.active = False
     discussion.timer_running = False
     discussion.save()
+    log_discussion_event(discussion, current_delegate(request), 'close', f'{current_delegate(request).name} closed the discussion.')
+    broadcast_discussions()
+    return JsonResponse({'raise404': False})
+
+
+@login_required
+@require_POST
+def ajaxDiscussionTypeChange(request):
+    discussion = discussion_or_404(request.POST.get('discussionId'))
+    delegate = require_discussion_moderator(request, discussion)
+    if delegate is None:
+        return JsonResponse({'raise404': True})
+    discussion_type = request.POST.get('discussionType')
+    if discussion_type not in [Discussion.TYPE_INFORMAL, Discussion.TYPE_FORMAL]:
+        return JsonResponse({'raise404': True})
+    old_type = discussion.discussion_type
+    discussion.discussion_type = discussion_type
+    discussion.save()
+    removed_count = 0
+    if discussion_type == Discussion.TYPE_FORMAL:
+        invalid_speakers = [
+            speaker for speaker in DiscussionSpeaker.objects.filter(discussion=discussion, status__in=[DiscussionSpeaker.STATUS_WAITING, DiscussionSpeaker.STATUS_CURRENT]).select_related('delegate')
+            if not discussion.delegate_can_speak(speaker.delegate)
+        ]
+        removed_count = len(invalid_speakers)
+        if discussion.current_speaker_id in [speaker.id for speaker in invalid_speakers]:
+            discussion.current_speaker = None
+            discussion.timer_running = False
+            discussion.save()
+        DiscussionSpeaker.objects.filter(id__in=[speaker.id for speaker in invalid_speakers]).delete()
+    message = f'{delegate.name} changed discussion type from {old_type} to {discussion_type}.'
+    if removed_count:
+        message += f' Removed {removed_count} ineligible speaker queue entr{"y" if removed_count == 1 else "ies"}.'
+    log_discussion_event(discussion, delegate, 'type_change', message)
     broadcast_discussions()
     return JsonResponse({'raise404': False})
 
@@ -182,6 +242,7 @@ def ajaxDiscussionAddModerator(request):
     if moderator.id != discussion.moderator_id:
         discussion.additional_moderators.add(moderator)
         DiscussionParticipant.objects.get_or_create(discussion=discussion, delegate=moderator)
+        log_discussion_event(discussion, current_delegate(request), 'moderator_add', f'{current_delegate(request).name} added {moderator.name} as a moderator.')
     broadcast_discussions()
     return JsonResponse({'raise404': False})
 
@@ -217,6 +278,7 @@ def ajaxDiscussionAddSpeaker(request):
         index=next_index,
         duration_seconds=discussion.default_speaker_seconds,
     )
+    log_discussion_event(discussion, delegate, 'speaker_add', f'{target.name} joined the speaker queue.')
     broadcast_discussions()
     return JsonResponse({'raise404': False})
 
@@ -237,6 +299,7 @@ def ajaxDiscussionRemoveSpeaker(request):
         discussion.current_speaker = None
         discussion.timer_running = False
         discussion.save()
+    log_discussion_event(discussion, delegate, 'speaker_remove', f'{speaker.delegate.name} was removed from the speaker queue.')
     speaker.delete()
     broadcast_discussions()
     return JsonResponse({'raise404': False})
@@ -253,6 +316,7 @@ def ajaxDiscussionReorderSpeakers(request):
     for speaker in speakers:
         speaker.index = order.index(speaker.id) + 1
         speaker.save()
+    log_discussion_event(discussion, current_delegate(request), 'speaker_reorder', f'{current_delegate(request).name} reordered the speaker queue.')
     broadcast_discussions()
     return JsonResponse({'raise404': False})
 
@@ -268,6 +332,7 @@ def ajaxDiscussionUpdateSpeakerTime(request):
         return JsonResponse({'raise404': True})
     speaker.duration_seconds = seconds_from_request(request, 'durationSeconds', speaker.duration_seconds)
     speaker.save()
+    log_discussion_event(speaker.discussion, current_delegate(request), 'speaker_time', f'{current_delegate(request).name} changed {speaker.delegate.name} speaker time to {speaker.duration_seconds} seconds.')
     if speaker.discussion.current_speaker_id == speaker.id:
         speaker.discussion.timer_remaining_seconds = speaker.duration_seconds
         speaker.discussion.timer_started_at = timezone.now() if speaker.discussion.timer_running else None
@@ -291,20 +356,24 @@ def ajaxDiscussionTimerAction(request):
         if action == 'activate':
             discussion.active = True
             discussion.save()
+            log_discussion_event(discussion, current_delegate(request), 'discussion_start', f'{current_delegate(request).name} started the discussion.')
         elif action == 'pause' and current:
             discussion.timer_remaining_seconds = discussion.timer_remaining()
             discussion.timer_running = False
             discussion.timer_started_at = None
             discussion.save()
+            log_discussion_event(discussion, current_delegate(request), 'timer_pause', f'{current_delegate(request).name} paused the timer for {current.delegate.name}.')
         elif action == 'resume' and current:
             discussion.timer_running = True
             discussion.timer_started_at = timezone.now()
             discussion.save()
+            log_discussion_event(discussion, current_delegate(request), 'timer_resume', f'{current_delegate(request).name} resumed the timer for {current.delegate.name}.')
         elif action == 'restart' and current:
             discussion.timer_remaining_seconds = current.duration_seconds
             discussion.timer_running = True
             discussion.timer_started_at = timezone.now()
             discussion.save()
+            log_discussion_event(discussion, current_delegate(request), 'timer_restart', f'{current_delegate(request).name} restarted the timer for {current.delegate.name}.')
         elif action in ('skip', 'finish') and current:
             current.status = DiscussionSpeaker.STATUS_SKIPPED if action == 'skip' else DiscussionSpeaker.STATUS_DONE
             current.save()
@@ -313,6 +382,7 @@ def ajaxDiscussionTimerAction(request):
             discussion.timer_started_at = None
             discussion.timer_remaining_seconds = discussion.default_speaker_seconds
             discussion.save()
+            log_discussion_event(discussion, current_delegate(request), 'speaker_' + action, f'{current.delegate.name} was {"yielded/skipped" if action == "skip" else "marked finished"}.')
         elif action == 'start':
             if not current:
                 current = discussion.next_waiting_speaker()
@@ -322,6 +392,7 @@ def ajaxDiscussionTimerAction(request):
                 current.save()
                 discussion.current_speaker = current
                 discussion.timer_remaining_seconds = current.duration_seconds
+                log_discussion_event(discussion, current_delegate(request), 'speaker_start', f'{current.delegate.name} started speaking.')
             discussion.active = True
             discussion.timer_running = True
             discussion.timer_started_at = timezone.now()
@@ -363,6 +434,7 @@ def ajaxDiscussionQuestionAdd(request):
         parent=parent,
         text=text,
     )
+    log_discussion_event(discussion, delegate, 'question_add', f'{delegate.name} posted a Q&A message.')
     broadcast_discussions()
     return JsonResponse({'raise404': False})
 
@@ -388,8 +460,10 @@ def ajaxDiscussionQuestionReact(request):
     existing = DiscussionQuestionReaction.objects.filter(question=question, delegate=delegate, reaction=reaction)
     if existing.exists():
         existing.delete()
+        log_discussion_event(question.discussion, delegate, 'question_reaction_remove', f'{delegate.name} removed a {reaction} reaction from a Q&A message.')
     else:
         DiscussionQuestionReaction.objects.create(question=question, delegate=delegate, reaction=reaction)
+        log_discussion_event(question.discussion, delegate, 'question_reaction', f'{delegate.name} reacted {reaction} to a Q&A message.')
     broadcast_discussions()
     return JsonResponse({'raise404': False})
 

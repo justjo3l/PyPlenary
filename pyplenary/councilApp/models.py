@@ -229,7 +229,7 @@ class Discussion(models.Model):
         return delegate is not None and (
             self.moderator_id == delegate.id
             or delegate.superadmin
-            or self.additional_moderators.filter(id=delegate.id).exists()
+            or any(moderator.id == delegate.id for moderator in self.additional_moderators.all())
         )
 
     def user_can_manage_moderators(self, delegate):
@@ -258,6 +258,9 @@ class Discussion(models.Model):
     def next_waiting_speaker(self):
         return self.speakers.filter(status=DiscussionSpeaker.STATUS_WAITING).order_by('index').first()
 
+    def waiting_speakers(self):
+        return list(self.speakers.filter(status=DiscussionSpeaker.STATUS_WAITING).order_by('index'))
+
     @staticmethod
     def discussions_for_ws(delegate=None):
         discussions = Discussion.objects.all().select_related(
@@ -282,10 +285,12 @@ class Discussion(models.Model):
 
     def to_json(self, delegate=None):
         participants = [participant.to_json() for participant in self.participants.all()]
-        speakers = [speaker.to_json() for speaker in self.speakers.all().order_by('index')]
-        questions = [question.to_json(delegate) for question in self.questions.all().order_by('created_at')]
-        current = self.current_speaker.to_json() if self.current_speaker else None
-        next_speaker = self.next_waiting_speaker()
+        speaker_objects = list(self.speakers.all())
+        speakers = [speaker.to_json() for speaker in speaker_objects]
+        questions = [question.to_json(delegate) for question in self.questions.all()]
+        waiting_speakers = [speaker for speaker in speaker_objects if speaker.status == DiscussionSpeaker.STATUS_WAITING]
+        current_speaker_object = self.current_speaker or (waiting_speakers[0] if waiting_speakers else None)
+        next_speaker = self.next_waiting_speaker() if self.current_speaker else (waiting_speakers[1] if len(waiting_speakers) > 1 else None)
         moderator_options = []
         if self.user_can_manage_moderators(delegate):
             used_moderator_ids = [self.moderator_id] + list(self.additional_moderators.values_list('id', flat=True))
@@ -304,7 +309,8 @@ class Discussion(models.Model):
             'status': self.status_label(),
             'timer_running': self.timer_running,
             'timer_remaining_seconds': self.timer_remaining(),
-            'current_speaker': current,
+            'current_speaker': current_speaker_object.to_json() if current_speaker_object else None,
+            'speaker_timer_started': self.current_speaker_id is not None,
             'next_speaker': next_speaker.to_json() if next_speaker else None,
             'participants': participants,
             'participant_count': len(participants),
@@ -410,12 +416,14 @@ class DiscussionQuestion(models.Model):
 
 
 class DiscussionQuestionReaction(models.Model):
-    REACTION_LIKE = 'like'
-    REACTION_AGREE = 'agree'
+    REACTION_HEART = 'heart'
+    REACTION_THUMBS_UP = 'thumbs_up'
+    REACTION_THUMBS_DOWN = 'thumbs_down'
     REACTION_QUESTION = 'question'
     REACTION_CHOICES = [
-        (REACTION_LIKE, 'Like'),
-        (REACTION_AGREE, 'Agree'),
+        (REACTION_HEART, 'Heart'),
+        (REACTION_THUMBS_UP, 'Thumbs up'),
+        (REACTION_THUMBS_DOWN, 'Thumbs down'),
         (REACTION_QUESTION, 'Question'),
     ]
 
@@ -430,3 +438,18 @@ class DiscussionQuestionReaction(models.Model):
 
     def __str__(self):
         return f'{self.delegate.name} {self.reaction} {self.question_id}'
+
+
+class DiscussionEvent(models.Model):
+    discussion = models.ForeignKey(Discussion, models.CASCADE, related_name='events')
+    actor = models.ForeignKey(Delegate, models.SET_NULL, null=True, blank=True, related_name='discussion_events')
+    event_type = models.CharField(max_length=80)
+    message = models.CharField(max_length=500)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'DiscussionEvent'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.created_at}: {self.message}'

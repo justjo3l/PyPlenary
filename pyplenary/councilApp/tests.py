@@ -429,11 +429,11 @@ class DiscussionTests(TestCase):
 
         first = self.client.post(
             "/ajax/discussionQuestionReact/",
-            {"questionId": question.id, "reaction": "like"},
+            {"questionId": question.id, "reaction": "heart"},
         )
         second = self.client.post(
             "/ajax/discussionQuestionReact/",
-            {"questionId": question.id, "reaction": "like"},
+            {"questionId": question.id, "reaction": "heart"},
         )
 
         self.assertEqual(first.status_code, 200)

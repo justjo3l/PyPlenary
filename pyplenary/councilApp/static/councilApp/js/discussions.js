@@ -50,6 +50,19 @@ function renderDelegate(delegate) {
 	return delegate.name + ' (' + delegate.institution + ')';
 }
 
+function roleBadge(delegate) {
+	var badge = document.createElement('span');
+	var colors = {
+		viewer: 'bg-secondary',
+		delegate: 'bg-info text-dark',
+		representative: 'bg-primary',
+		moderator: 'bg-success'
+	};
+	badge.className = 'badge ' + (colors[delegate.account_role] || 'bg-secondary');
+	badge.innerText = delegate.account_role_label;
+	return badge;
+}
+
 function button(label, className, onClick) {
 	var btn = document.createElement('button');
 	btn.type = 'button';
@@ -120,10 +133,10 @@ function renderDiscussionList(discussions) {
 		appendBadge(top, discussion.discussion_type, 'badge bg-' + (discussion.discussion_type === 'formal' ? 'primary' : 'secondary'));
 		appendBadge(top, discussion.status, 'badge bg-' + (discussion.status === 'active' ? 'success' : (discussion.status === 'closed' ? 'dark' : 'warning text-dark')));
 
-		var meta = document.createElement('div');
-		meta.className = 'small text-muted mt-1';
-		meta.innerText = 'Moderator: ' + discussion.moderator.name + ' · People in discussion: ' + discussion.participant_count;
-		link.appendChild(meta);
+	var meta = document.createElement('div');
+	meta.className = 'small text-muted mt-1';
+	meta.innerText = 'Moderator: ' + discussion.moderator.name + ' (' + discussion.moderator.account_role_label + ') · People in discussion: ' + discussion.participant_count;
+	link.appendChild(meta);
 	});
 }
 
@@ -165,7 +178,7 @@ function renderDiscussionDetail(discussion) {
 
 	var meta = document.createElement('p');
 	meta.className = 'text-muted mb-0';
-	meta.innerText = 'Original moderator: ' + discussion.moderator.name + ' · People in discussion: ' + discussion.participant_count;
+	meta.innerText = 'Original moderator: ' + discussion.moderator.name + ' (' + discussion.moderator.account_role_label + ') · People in discussion: ' + discussion.participant_count;
 	header.appendChild(meta);
 
 	renderSpeakerFocus(discussion);
@@ -209,7 +222,7 @@ function renderSpeakerFocus(discussion) {
 		controls.className = 'd-flex flex-wrap justify-content-center gap-2 mt-3';
 		panel.appendChild(controls);
 
-		if (!discussion.current_speaker) {
+		if (!discussion.speaker_timer_started) {
 			controls.appendChild(button('Start speaker', 'btn btn-primary btn-sm', function() {
 				postDiscussion('/ajax/discussionTimerAction/', {discussionId: discussion.id, action: 'start'});
 			}));
@@ -287,6 +300,20 @@ function renderModeratorPanel(discussion) {
 			postDiscussion('/ajax/discussionTimerAction/', {discussionId: discussion.id, action: 'activate'});
 		}));
 	}
+	var typeSelect = document.createElement('select');
+	typeSelect.className = 'form-select form-select-sm';
+	typeSelect.style.maxWidth = '12rem';
+	[['informal', 'Informal'], ['formal', 'Formal']].forEach(function(item) {
+		var option = document.createElement('option');
+		option.value = item[0];
+		option.innerText = item[1];
+		option.selected = discussion.discussion_type === item[0];
+		typeSelect.appendChild(option);
+	});
+	typeSelect.addEventListener('change', function() {
+		postDiscussion('/ajax/discussionTypeChange/', {discussionId: discussion.id, discussionType: typeSelect.value});
+	});
+	controls.appendChild(typeSelect);
 	controls.appendChild(button('Close discussion', 'btn btn-outline-secondary btn-sm', function() {
 		if (confirm('Close this discussion?')) {
 			postDiscussion('/ajax/discussionArchive/', {discussionId: discussion.id});
@@ -319,6 +346,12 @@ function renderModeratorPanel(discussion) {
 			postDiscussion('/ajax/discussionAddModerator/', {discussionId: discussion.id, delegateId: select.value});
 		}));
 	}
+
+	var logLink = document.createElement('a');
+	logLink.href = '/discussions/' + discussion.id + '/logs/';
+	logLink.className = 'btn btn-outline-dark btn-sm';
+	logLink.innerText = 'Logs';
+	panel.appendChild(logLink);
 }
 
 function renderParticipants(discussion) {
@@ -337,7 +370,8 @@ function renderParticipants(discussion) {
 	discussion.participants.forEach(function(participant) {
 		var item = document.createElement('span');
 		item.className = 'badge bg-light text-dark border';
-		item.innerText = renderDelegate(participant.delegate) + ' · ' + participant.delegate.account_role_label;
+		item.innerText = renderDelegate(participant.delegate) + ' ';
+		item.appendChild(roleBadge(participant.delegate));
 		list.appendChild(item);
 
 		if (discussion.user_is_moderator && discussion.status !== 'closed' && participant.delegate.id !== delegate_id && delegateCanSpeakInDiscussion(participant.delegate, discussion)) {
@@ -388,6 +422,7 @@ function renderSpeakerList(discussion) {
 		name.style.flexGrow = '1';
 		name.innerText = renderDelegate(speaker.delegate);
 		top.appendChild(name);
+		top.appendChild(roleBadge(speaker.delegate));
 
 		appendBadge(top, speaker.status, 'badge bg-' + (speaker.status === 'current' ? 'success' : 'secondary'));
 
@@ -525,7 +560,7 @@ function renderQuestionItem(list, discussion, question, byParent, depth) {
 
 	var meta = document.createElement('div');
 	meta.className = 'small text-muted mb-1';
-	meta.innerText = question.author.name + ' · ' + new Date(question.created_at).toLocaleString();
+	meta.innerText = question.author.name + ' · ' + question.author.account_role_label + ' · ' + new Date(question.created_at).toLocaleString();
 	item.appendChild(meta);
 
 	var text = document.createElement('div');
@@ -536,19 +571,8 @@ function renderQuestionItem(list, discussion, question, byParent, depth) {
 	actions.className = 'd-flex flex-wrap gap-2 mt-2';
 	item.appendChild(actions);
 
-	[
-		['like', 'Like'],
-		['agree', 'Agree'],
-		['question', 'Question']
-	].forEach(function(reaction) {
-		var key = reaction[0];
-		var label = reaction[1];
-		var count = question.reaction_counts[key] || 0;
-		var active = question.user_reactions.indexOf(key) !== -1;
-		actions.appendChild(button(label + (count ? ' ' + count : ''), active ? 'btn btn-primary btn-sm' : 'btn btn-outline-primary btn-sm', function() {
-			postDiscussion('/ajax/discussionQuestionReact/', {questionId: question.id, reaction: key});
-		}));
-	});
+	renderReactionSummary(actions, question);
+	renderReactionPicker(actions, question);
 
 	if (discussion.status !== 'closed') {
 		actions.appendChild(button('Reply', 'btn btn-outline-secondary btn-sm', function() {
@@ -565,6 +589,58 @@ function renderQuestionItem(list, discussion, question, byParent, depth) {
 
 	(byParent[question.id] || []).forEach(function(reply) {
 		renderQuestionItem(list, discussion, reply, byParent, depth + 1);
+	});
+}
+
+function reactionMeta() {
+	return [
+		['heart', 'Heart', '♥'],
+		['thumbs_up', 'Thumbs up', '👍'],
+		['thumbs_down', 'Thumbs down', '👎'],
+		['question', 'Question', '?']
+	];
+}
+
+function renderReactionSummary(parent, question) {
+	var summary = document.createElement('div');
+	summary.className = 'd-flex flex-wrap gap-1 align-items-center';
+	parent.appendChild(summary);
+
+	reactionMeta().forEach(function(reaction) {
+		var key = reaction[0];
+		var icon = reaction[2];
+		var count = question.reaction_counts[key] || 0;
+		if (count > 0) {
+			var pill = document.createElement('span');
+			pill.className = 'badge rounded-pill bg-light text-dark border';
+			pill.innerText = icon + ' ' + count;
+			summary.appendChild(pill);
+		}
+	});
+}
+
+function renderReactionPicker(parent, question) {
+	var wrapper = document.createElement('div');
+	wrapper.className = 'dropdown';
+	parent.appendChild(wrapper);
+
+	var trigger = button('React', 'btn btn-outline-primary btn-sm dropdown-toggle', function() {});
+	trigger.setAttribute('data-bs-toggle', 'dropdown');
+	wrapper.appendChild(trigger);
+
+	var menu = document.createElement('div');
+	menu.className = 'dropdown-menu p-1';
+	wrapper.appendChild(menu);
+
+	reactionMeta().forEach(function(reaction) {
+		var key = reaction[0];
+		var label = reaction[1];
+		var icon = reaction[2];
+		var active = question.user_reactions.indexOf(key) !== -1;
+		var item = button(icon + ' ' + label, active ? 'dropdown-item active' : 'dropdown-item', function() {
+			postDiscussion('/ajax/discussionQuestionReact/', {questionId: question.id, reaction: key});
+		});
+		menu.appendChild(item);
 	});
 }
 
@@ -586,7 +662,7 @@ function checkNotifications(discussions) {
 		var currentId = discussion.current_speaker ? discussion.current_speaker.delegate.id : null;
 		var nextId = discussion.next_speaker ? discussion.next_speaker.delegate.id : null;
 
-		if (currentId === delegate_id && lastCurrentByDiscussion[discussion.id] !== currentId) {
+		if (discussion.speaker_timer_started && currentId === delegate_id && lastCurrentByDiscussion[discussion.id] !== currentId) {
 			notifySpeaker('You are speaking now', discussion.title);
 		}
 		if (nextId === delegate_id && lastNextByDiscussion[discussion.id] !== nextId) {
