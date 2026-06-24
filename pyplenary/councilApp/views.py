@@ -938,46 +938,90 @@ def agenda(request):
         if not can_edit:
             raise Http404()
         action = request.POST.get('action')
-        if action == 'create_day':
-            AgendaDay.objects.create(
-                title=request.POST.get('title', '').strip() or 'New Day',
-                date=request.POST.get('date', '').strip(),
-                order=int(request.POST.get('order') or 0),
-            )
-        elif action == 'update_day':
-            day = AgendaDay.objects.get(id=request.POST.get('day_id'))
-            day.title = request.POST.get('title', '').strip() or day.title
-            day.date = request.POST.get('date', '').strip()
-            day.order = int(request.POST.get('order') or 0)
-            day.save()
-        elif action == 'delete_day':
-            AgendaDay.objects.filter(id=request.POST.get('day_id')).delete()
-        elif action == 'create_item':
-            day = AgendaDay.objects.get(id=request.POST.get('day_id'))
-            AgendaItem.objects.create(
-                day=day,
-                time=request.POST.get('time', '').strip(),
-                title=request.POST.get('title', '').strip() or 'New Item',
-                badge=request.POST.get('badge', '').strip(),
-                color=request.POST.get('color', '').strip(),
-                category=request.POST.get('category', '').strip(),
-                content=request.POST.get('content', '').strip(),
-                links=request.POST.get('links', '').strip(),
-                order=int(request.POST.get('order') or 0),
-            )
-        elif action == 'update_item':
-            item = AgendaItem.objects.get(id=request.POST.get('item_id'))
-            item.time = request.POST.get('time', '').strip()
-            item.title = request.POST.get('title', '').strip() or item.title
-            item.badge = request.POST.get('badge', '').strip()
-            item.color = request.POST.get('color', '').strip()
-            item.category = request.POST.get('category', '').strip()
-            item.content = request.POST.get('content', '').strip()
-            item.links = request.POST.get('links', '').strip()
-            item.order = int(request.POST.get('order') or 0)
-            item.save()
-        elif action == 'delete_item':
-            AgendaItem.objects.filter(id=request.POST.get('item_id')).delete()
+        if action == 'save_agenda':
+            day_keys = request.POST.getlist('day_key')
+            day_ids = request.POST.getlist('day_id')
+            day_titles = request.POST.getlist('day_title')
+            day_dates = request.POST.getlist('day_date')
+            day_orders = request.POST.getlist('day_order')
+            item_keys = request.POST.getlist('item_key')
+            item_day_keys = request.POST.getlist('item_day_key')
+            item_ids = request.POST.getlist('item_id')
+            item_times = request.POST.getlist('item_time')
+            item_titles = request.POST.getlist('item_title')
+            item_colors = request.POST.getlist('item_color')
+            item_orders = request.POST.getlist('item_order')
+            item_badges = request.POST.getlist('item_badge')
+            item_categories = request.POST.getlist('item_category')
+            item_links = request.POST.getlist('item_links')
+            item_contents = request.POST.getlist('item_content')
+
+            def list_value(values, index, default=''):
+                return values[index] if index < len(values) else default
+
+            def clean_int(value, default=0):
+                try:
+                    return int(value)
+                except (TypeError, ValueError):
+                    return default
+
+            saved_day_ids = []
+            saved_item_ids = []
+            day_id_map = {}
+            item_id_map = {}
+            day_by_key = {}
+
+            with transaction.atomic():
+                for index, day_key in enumerate(day_keys):
+                    day_id = list_value(day_ids, index).strip()
+                    if day_id:
+                        day = AgendaDay.objects.get(id=day_id)
+                    else:
+                        day = AgendaDay()
+                    day.title = list_value(day_titles, index).strip() or 'New Day'
+                    day.date = list_value(day_dates, index).strip()
+                    day.order = clean_int(list_value(day_orders, index))
+                    day.save()
+                    saved_day_ids.append(day.id)
+                    day_by_key[day_key] = day
+                    day_id_map[day_key] = day.id
+
+                AgendaDay.objects.exclude(id__in=saved_day_ids).delete()
+
+                for index, item_key in enumerate(item_keys):
+                    day = day_by_key.get(list_value(item_day_keys, index))
+                    if day is None:
+                        continue
+                    title = list_value(item_titles, index).strip()
+                    time = list_value(item_times, index).strip()
+                    content = list_value(item_contents, index).strip()
+                    links = list_value(item_links, index).strip()
+                    badge = list_value(item_badges, index).strip()
+                    category = list_value(item_categories, index).strip()
+                    if not any([title, time, content, links, badge, category]):
+                        continue
+                    item_id = list_value(item_ids, index).strip()
+                    if item_id:
+                        item = AgendaItem.objects.get(id=item_id)
+                    else:
+                        item = AgendaItem(day=day)
+                    item.day = day
+                    item.time = time
+                    item.title = title or 'New Item'
+                    item.badge = badge
+                    item.color = list_value(item_colors, index).strip() or '#0d6efd'
+                    item.category = category
+                    item.content = content
+                    item.links = links
+                    item.order = clean_int(list_value(item_orders, index))
+                    item.save()
+                    saved_item_ids.append(item.id)
+                    item_id_map[item_key] = item.id
+
+                AgendaItem.objects.filter(day_id__in=saved_day_ids).exclude(id__in=saved_item_ids).delete()
+
+            if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+                return JsonResponse({'success': True, 'day_ids': day_id_map, 'item_ids': item_id_map})
         return redirect('/agenda/?edit=1')
 
     days = AgendaDay.objects.prefetch_related('items').all()

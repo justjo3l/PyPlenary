@@ -4,7 +4,7 @@ from django.db.models import Q
 from django.test import TestCase, override_settings
 from unittest.mock import Mock, patch
 
-from .models import Delegate, Discussion, DiscussionEvent, DiscussionParticipant, DiscussionQuestion, DiscussionQuestionReaction, DiscussionSpeaker, Institution, PendingRego, Poll, Vote
+from .models import AgendaDay, AgendaItem, Delegate, Discussion, DiscussionEvent, DiscussionParticipant, DiscussionQuestion, DiscussionQuestionReaction, DiscussionSpeaker, Institution, PendingRego, Poll, Vote
 
 
 class ResendEmailBackendTests(TestCase):
@@ -105,6 +105,66 @@ class AdminWithoutDelegateTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "not linked to a council delegate profile yet")
+
+
+class AgendaEditorTests(TestCase):
+    def setUp(self):
+        self.institution = Institution.objects.create(
+            name="University of Melbourne",
+            shortName="UMelb",
+            state="VIC",
+            votesWeight=2,
+            is_node=False,
+        )
+        self.user = User.objects.create_user(
+            username="admin@example.com",
+            email="admin@example.com",
+            password="password",
+        )
+        self.delegate = Delegate.objects.create(
+            authClone=self.user,
+            name="Agenda Admin",
+            email="admin@example.com",
+            account_role=Delegate.ROLE_ADMIN,
+            institution=self.institution,
+            role="Admin",
+            speakerNum=1,
+        )
+        self.client.login(username="admin@example.com", password="password")
+
+    def test_bulk_save_updates_days_and_items_without_redirect(self):
+        response = self.client.post(
+            "/agenda/",
+            {
+                "action": "save_agenda",
+                "day_key": ["new-day-1"],
+                "day_id": [""],
+                "day_title": ["Day One"],
+                "day_date": ["24 June 2026"],
+                "day_order": ["1"],
+                "item_key": ["new-item-1"],
+                "item_day_key": ["new-day-1"],
+                "item_id": [""],
+                "item_time": ["9:00 AM"],
+                "item_title": ["Opening"],
+                "item_color": ["#198754"],
+                "item_order": ["1"],
+                "item_badge": ["Session"],
+                "item_category": ["Governance"],
+                "item_links": ["[Agenda pack](https://example.com)"],
+                "item_content": ["Welcome and setup."],
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["success"])
+        day = AgendaDay.objects.get()
+        item = AgendaItem.objects.get()
+        self.assertEqual(day.title, "Day One")
+        self.assertEqual(item.day, day)
+        self.assertEqual(item.title, "Opening")
+        self.assertEqual(item.color, "#198754")
 
 
 class MutatingEndpointMethodTests(TestCase):

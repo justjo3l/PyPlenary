@@ -17,7 +17,9 @@
 
     {% if can_edit_agenda %}
       <div class="collapse{% if edit_agenda %} show{% endif %} mb-4" id="agendaEditor">
-        <div class="border rounded p-3">
+        <form method="post" class="border rounded p-3" id="agendaBulkForm">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="save_agenda">
           <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center mb-3">
             <h4 class="mb-0">Agenda Editor</h4>
             <button class="btn btn-outline-secondary btn-sm" type="button" id="exitAgendaEditor">Exit Editor</button>
@@ -29,79 +31,65 @@
             <p class="mb-2"><strong>Day title</strong> is the tab label, <strong>Date</strong> is the date text shown above the timeline, and <strong>Order</strong> controls which day appears first. Lower numbers appear first.</p>
             <p class="mb-2"><strong>Time</strong> appears beside the agenda entry, <strong>Title</strong> is the main heading, <strong>Color</strong> controls the timeline dot and badge colour, and <strong>Order</strong> controls item position within the day.</p>
             <p class="mb-2"><strong>Badge</strong> is a short coloured pill beside the title, useful for labels like Vote, Break, Closed, Workshop, or Action. <strong>Category</strong> is a neutral tag for grouping, such as Governance, Policy, Welfare, or Training.</p>
-            <p class="mb-0"><strong>Content</strong> supports markdown for the agenda description. <strong>Links</strong> supports one markdown link or plain URL per line. Save each day or item after editing it.</p>
+            <p class="mb-0"><strong>Content</strong> supports markdown for the agenda description. <strong>Links</strong> supports one markdown link or plain URL per line. Make all changes first, then use the single save button at the bottom.</p>
           </div>
 
-          <h5>Create Day</h5>
-          <form method="post" class="row g-2 mb-4">
-            {% csrf_token %}
-            <input type="hidden" name="action" value="create_day">
-            <div class="col-12 col-md-5"><input class="form-control" name="title" placeholder="Day title"></div>
-            <div class="col-12 col-md-4"><input class="form-control" name="date" placeholder="Date text"></div>
-            <div class="col-6 col-md-2"><input class="form-control" type="number" name="order" placeholder="Order"></div>
-            <div class="col-6 col-md-1"><button class="btn btn-success w-100" type="submit">Add</button></div>
-          </form>
-
-          {% for day in days %}
-            <div class="border-top pt-3 mt-3">
-              <form method="post" class="row g-2 align-items-end mb-3">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="update_day">
+          <div id="agendaDays">
+            {% for day in days %}
+              <div class="agenda-day-card border-top pt-3 mt-3" data-day-key="day-{{ day.id }}">
+                <input type="hidden" name="day_key" value="day-{{ day.id }}">
                 <input type="hidden" name="day_id" value="{{ day.id }}">
-                <div class="col-12 col-md-4"><label class="form-label">Day</label><input class="form-control" name="title" value="{{ day.title }}"></div>
-                <div class="col-12 col-md-3"><label class="form-label">Date</label><input class="form-control" name="date" value="{{ day.date }}"></div>
-                <div class="col-6 col-md-2"><label class="form-label">Order</label><input class="form-control" type="number" name="order" value="{{ day.order }}"></div>
-                <div class="col-6 col-md-3 d-flex gap-2">
-                  <button class="btn btn-primary" type="submit">Save Day</button>
-                  <button class="btn btn-outline-danger" type="submit" name="action" value="delete_day">Delete</button>
+                <div class="d-flex justify-content-between gap-2 align-items-center mb-2">
+                  <h5 class="mb-0">{{ day.title }}</h5>
+                  <button class="btn btn-outline-danger btn-sm remove-day-button" type="button">Remove Day</button>
                 </div>
-              </form>
+                <div class="row g-2 align-items-end mb-3">
+                  <div class="col-12 col-md-5"><label class="form-label">Day</label><input class="form-control" name="day_title" value="{{ day.title }}"></div>
+                  <div class="col-12 col-md-4"><label class="form-label">Date</label><input class="form-control" name="day_date" value="{{ day.date }}"></div>
+                  <div class="col-6 col-md-3"><label class="form-label">Order</label><input class="form-control" type="number" name="day_order" value="{{ day.order }}"></div>
+                </div>
 
-              {% for item in day.items.all %}
-                <form method="post" class="border rounded p-2 mb-2">
-                  {% csrf_token %}
-                  <input type="hidden" name="action" value="update_item">
-                  <input type="hidden" name="item_id" value="{{ item.id }}">
-                  <div class="row g-2">
-                    <div class="col-6 col-md-2"><input class="form-control" name="time" value="{{ item.time }}" placeholder="Time"></div>
-                    <div class="col-12 col-md-5"><input class="form-control" name="title" value="{{ item.title }}" placeholder="Title"></div>
-                    <div class="col-6 col-md-2">
-                      <label class="form-label small mb-1">Color</label>
-                      <input class="form-control form-control-color w-100" type="color" name="color" value="{{ item.display_color }}" title="Timeline and badge color">
+                <div class="agenda-event-list">
+                  {% for item in day.items.all %}
+                    <div class="agenda-event-card border rounded p-2 mb-2" data-item-key="item-{{ item.id }}">
+                      <input type="hidden" name="item_key" value="item-{{ item.id }}">
+                      <input type="hidden" name="item_day_key" value="day-{{ day.id }}">
+                      <input type="hidden" name="item_id" value="{{ item.id }}">
+                      <div class="d-flex justify-content-between gap-2 align-items-center mb-2">
+                        <strong>{{ item.title }}</strong>
+                        <button class="btn btn-outline-danger btn-sm remove-event-button" type="button">Remove Event</button>
+                      </div>
+                      <div class="row g-2">
+                        <div class="col-6 col-md-2"><label class="form-label small mb-1">Time</label><input class="form-control" name="item_time" value="{{ item.time }}" placeholder="Time"></div>
+                        <div class="col-12 col-md-5"><label class="form-label small mb-1">Title</label><input class="form-control" name="item_title" value="{{ item.title }}" placeholder="Title"></div>
+                        <div class="col-6 col-md-2">
+                          <label class="form-label small mb-1">Color</label>
+                          <input class="form-control form-control-color w-100" type="color" name="item_color" value="{{ item.display_color }}" title="Timeline and badge color">
+                        </div>
+                        <div class="col-6 col-md-3"><label class="form-label small mb-1">Order</label><input class="form-control" type="number" name="item_order" value="{{ item.order }}" placeholder="Order"></div>
+                        <div class="col-6 col-md-3"><input class="form-control" name="item_badge" value="{{ item.badge }}" placeholder="Badge"></div>
+                        <div class="col-6 col-md-3"><input class="form-control" name="item_category" value="{{ item.category }}" placeholder="Category"></div>
+                        <div class="col-12 col-md-6"><textarea class="form-control" name="item_links" rows="2" placeholder="Links, one per line">{{ item.links }}</textarea></div>
+                        <div class="col-12"><textarea class="form-control" name="item_content" rows="3" placeholder="Content">{{ item.content }}</textarea></div>
+                      </div>
                     </div>
-                    <div class="col-6 col-md-2"><input class="form-control" type="number" name="order" value="{{ item.order }}" placeholder="Order"></div>
-                    <div class="col-12 col-md-1"><button class="btn btn-primary w-100" type="submit">Save</button></div>
-                    <div class="col-6 col-md-3"><input class="form-control" name="badge" value="{{ item.badge }}" placeholder="Badge"></div>
-                    <div class="col-6 col-md-3"><input class="form-control" name="category" value="{{ item.category }}" placeholder="Category"></div>
-                    <div class="col-12 col-md-6"><textarea class="form-control" name="links" rows="2" placeholder="Links, one per line">{{ item.links }}</textarea></div>
-                    <div class="col-12"><textarea class="form-control" name="content" rows="3" placeholder="Content">{{ item.content }}</textarea></div>
-                    <div class="col-12"><button class="btn btn-outline-danger btn-sm" type="submit" name="action" value="delete_item">Delete Item</button></div>
-                  </div>
-                </form>
-              {% endfor %}
-
-              <form method="post" class="border rounded p-2 bg-light">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="create_item">
-                <input type="hidden" name="day_id" value="{{ day.id }}">
-                <div class="row g-2">
-                  <div class="col-6 col-md-2"><input class="form-control" name="time" placeholder="Time"></div>
-                  <div class="col-12 col-md-5"><input class="form-control" name="title" placeholder="Title"></div>
-                  <div class="col-6 col-md-2">
-                    <label class="form-label small mb-1">Color</label>
-                    <input class="form-control form-control-color w-100" type="color" name="color" value="#0d6efd" title="Timeline and badge color">
-                  </div>
-                  <div class="col-6 col-md-2"><input class="form-control" type="number" name="order" placeholder="Order"></div>
-                  <div class="col-12 col-md-1"><button class="btn btn-success w-100" type="submit">Add</button></div>
-                  <div class="col-6 col-md-3"><input class="form-control" name="badge" placeholder="Badge"></div>
-                  <div class="col-6 col-md-3"><input class="form-control" name="category" placeholder="Category"></div>
-                  <div class="col-12 col-md-6"><textarea class="form-control" name="links" rows="2" placeholder="Links, one per line"></textarea></div>
-                  <div class="col-12"><textarea class="form-control" name="content" rows="3" placeholder="Content"></textarea></div>
+                  {% endfor %}
                 </div>
-              </form>
-            </div>
-          {% endfor %}
-        </div>
+
+                <button class="btn btn-outline-success btn-sm add-event-button" type="button">Add Event</button>
+              </div>
+            {% endfor %}
+          </div>
+
+          <div class="mt-3">
+            <button class="btn btn-outline-success btn-sm" type="button" id="addDayButton">Add Day</button>
+          </div>
+
+          <div class="d-flex flex-wrap gap-2 justify-content-end align-items-center border-top pt-3 mt-4">
+            <span class="small text-muted me-auto" id="agendaSaveStatus"></span>
+            <button class="btn btn-primary" type="submit" id="saveAgendaButton">Save Agenda</button>
+          </div>
+        </form>
       </div>
     {% endif %}
 
@@ -171,27 +159,165 @@
     <script>
       (() => {
         const editor = document.getElementById('agendaEditor');
+        const form = document.getElementById('agendaBulkForm');
+        const daysContainer = document.getElementById('agendaDays');
+        const addDayButton = document.getElementById('addDayButton');
+        const saveButton = document.getElementById('saveAgendaButton');
+        const saveStatus = document.getElementById('agendaSaveStatus');
         const exitButton = document.getElementById('exitAgendaEditor');
         const confirmExitButton = document.getElementById('confirmExitAgendaEditor');
         const modalElement = document.getElementById('agendaExitModal');
-        if (!editor || !exitButton || !confirmExitButton || !modalElement || !window.bootstrap) return;
+        if (!editor || !form || !daysContainer || !addDayButton || !exitButton || !confirmExitButton || !modalElement || !window.bootstrap) return;
 
         let isDirty = false;
+        let needsPreviewRefresh = false;
         const exitModal = bootstrap.Modal.getOrCreateInstance(modalElement);
         const editorCollapse = bootstrap.Collapse.getOrCreateInstance(editor, { toggle: false });
 
-        editor.querySelectorAll('input, textarea, select').forEach((field) => {
-          field.addEventListener('input', () => { isDirty = true; });
-          field.addEventListener('change', () => { isDirty = true; });
+        const uniqueKey = (prefix) => `${prefix}-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+        const markDirty = () => {
+          isDirty = true;
+          if (saveStatus) saveStatus.textContent = 'Unsaved changes';
+        };
+
+        const eventTemplate = (dayKey) => {
+          const itemKey = uniqueKey('new-item');
+          return `
+            <div class="agenda-event-card border rounded p-2 mb-2" data-item-key="${itemKey}">
+              <input type="hidden" name="item_key" value="${itemKey}">
+              <input type="hidden" name="item_day_key" value="${dayKey}">
+              <input type="hidden" name="item_id" value="">
+              <div class="d-flex justify-content-between gap-2 align-items-center mb-2">
+                <strong>New Event</strong>
+                <button class="btn btn-outline-danger btn-sm remove-event-button" type="button">Remove Event</button>
+              </div>
+              <div class="row g-2">
+                <div class="col-6 col-md-2"><label class="form-label small mb-1">Time</label><input class="form-control" name="item_time" placeholder="Time"></div>
+                <div class="col-12 col-md-5"><label class="form-label small mb-1">Title</label><input class="form-control" name="item_title" placeholder="Title"></div>
+                <div class="col-6 col-md-2">
+                  <label class="form-label small mb-1">Color</label>
+                  <input class="form-control form-control-color w-100" type="color" name="item_color" value="#0d6efd" title="Timeline and badge color">
+                </div>
+                <div class="col-6 col-md-3"><label class="form-label small mb-1">Order</label><input class="form-control" type="number" name="item_order" placeholder="Order"></div>
+                <div class="col-6 col-md-3"><input class="form-control" name="item_badge" placeholder="Badge"></div>
+                <div class="col-6 col-md-3"><input class="form-control" name="item_category" placeholder="Category"></div>
+                <div class="col-12 col-md-6"><textarea class="form-control" name="item_links" rows="2" placeholder="Links, one per line"></textarea></div>
+                <div class="col-12"><textarea class="form-control" name="item_content" rows="3" placeholder="Content"></textarea></div>
+              </div>
+            </div>
+          `;
+        };
+
+        const dayTemplate = () => {
+          const dayKey = uniqueKey('new-day');
+          return `
+            <div class="agenda-day-card border-top pt-3 mt-3" data-day-key="${dayKey}">
+              <input type="hidden" name="day_key" value="${dayKey}">
+              <input type="hidden" name="day_id" value="">
+              <div class="d-flex justify-content-between gap-2 align-items-center mb-2">
+                <h5 class="mb-0">New Day</h5>
+                <button class="btn btn-outline-danger btn-sm remove-day-button" type="button">Remove Day</button>
+              </div>
+              <div class="row g-2 align-items-end mb-3">
+                <div class="col-12 col-md-5"><label class="form-label">Day</label><input class="form-control" name="day_title" placeholder="Day title"></div>
+                <div class="col-12 col-md-4"><label class="form-label">Date</label><input class="form-control" name="day_date" placeholder="Date text"></div>
+                <div class="col-6 col-md-3"><label class="form-label">Order</label><input class="form-control" type="number" name="day_order" placeholder="Order"></div>
+              </div>
+              <div class="agenda-event-list"></div>
+              <button class="btn btn-outline-success btn-sm add-event-button" type="button">Add Event</button>
+            </div>
+          `;
+        };
+
+        editor.addEventListener('input', (event) => {
+          markDirty();
+          if (event.target.name === 'day_title') {
+            const card = event.target.closest('.agenda-day-card');
+            const heading = card?.querySelector('h5');
+            if (heading) heading.textContent = event.target.value || 'New Day';
+          }
+          if (event.target.name === 'item_title') {
+            const card = event.target.closest('.agenda-event-card');
+            const heading = card?.querySelector('strong');
+            if (heading) heading.textContent = event.target.value || 'New Event';
+          }
         });
 
-        editor.querySelectorAll('form').forEach((form) => {
-          form.addEventListener('submit', () => { isDirty = false; });
+        editor.addEventListener('change', markDirty);
+
+        editor.addEventListener('click', (event) => {
+          if (event.target.closest('.add-event-button')) {
+            const dayCard = event.target.closest('.agenda-day-card');
+            const list = dayCard?.querySelector('.agenda-event-list');
+            const dayKey = dayCard?.dataset.dayKey;
+            if (!list || !dayKey) return;
+            list.insertAdjacentHTML('beforeend', eventTemplate(dayKey));
+            list.lastElementChild?.querySelector('input[name="item_time"]')?.focus();
+            markDirty();
+            return;
+          }
+
+          if (event.target.closest('.remove-event-button')) {
+            event.target.closest('.agenda-event-card')?.remove();
+            markDirty();
+            return;
+          }
+
+          if (event.target.closest('.remove-day-button')) {
+            event.target.closest('.agenda-day-card')?.remove();
+            markDirty();
+          }
+        });
+
+        addDayButton.addEventListener('click', () => {
+          daysContainer.insertAdjacentHTML('beforeend', dayTemplate());
+          daysContainer.lastElementChild?.querySelector('input[name="day_title"]')?.focus();
+          markDirty();
+        });
+
+        form.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          if (saveButton) saveButton.disabled = true;
+          if (saveStatus) saveStatus.textContent = 'Saving...';
+
+          try {
+            const response = await fetch(window.location.pathname, {
+              method: 'POST',
+              body: new FormData(form),
+              headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            });
+            if (!response.ok) throw new Error('Save failed');
+            const result = await response.json();
+            if (!result.success) throw new Error('Save failed');
+
+            Object.entries(result.day_ids || {}).forEach(([key, id]) => {
+              const card = daysContainer.querySelector(`.agenda-day-card[data-day-key="${key}"]`);
+              const input = card?.querySelector('input[name="day_id"]');
+              if (input) input.value = id;
+            });
+            Object.entries(result.item_ids || {}).forEach(([key, id]) => {
+              const card = daysContainer.querySelector(`.agenda-event-card[data-item-key="${key}"]`);
+              const input = card?.querySelector('input[name="item_id"]');
+              if (input) input.value = id;
+            });
+
+            isDirty = false;
+            needsPreviewRefresh = true;
+            if (saveStatus) saveStatus.textContent = 'Saved';
+          } catch (error) {
+            if (saveStatus) saveStatus.textContent = 'Save failed. Please try again.';
+          } finally {
+            if (saveButton) saveButton.disabled = false;
+          }
         });
 
         exitButton.addEventListener('click', () => {
           if (isDirty) {
             exitModal.show();
+            return;
+          }
+          if (needsPreviewRefresh) {
+            window.location.href = '/agenda/';
             return;
           }
           editorCollapse.hide();
@@ -200,7 +326,7 @@
         confirmExitButton.addEventListener('click', () => {
           isDirty = false;
           exitModal.hide();
-          editorCollapse.hide();
+          window.location.href = '/agenda/';
         });
       })();
     </script>
