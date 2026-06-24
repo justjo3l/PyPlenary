@@ -10,7 +10,7 @@ from django.contrib.auth.models import User
 from django.core.cache import caches
 from django.core.mail import send_mail
 from django.core.serializers.json import DjangoJSONEncoder
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Max
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
@@ -329,6 +329,67 @@ def ajaxDiscussionTimerAction(request):
         else:
             return JsonResponse({'raise404': True})
 
+    broadcast_discussions()
+    return JsonResponse({'raise404': False})
+
+
+@login_required
+@require_POST
+def ajaxDiscussionQuestionAdd(request):
+    delegate = current_delegate(request)
+    if delegate is None:
+        return JsonResponse({'raise404': True})
+    discussion = discussion_or_404(request.POST.get('discussionId'))
+    if discussion.archived:
+        return JsonResponse({'raise404': True, 'error': 'discussion_closed'})
+
+    text = (request.POST.get('text') or '').strip()
+    if not text:
+        return JsonResponse({'raise404': True, 'error': 'empty_question'})
+    if len(text) > 2000:
+        return JsonResponse({'raise404': True, 'error': 'question_too_long'})
+
+    parent = None
+    parent_id = request.POST.get('parentId')
+    if parent_id:
+        try:
+            parent = DiscussionQuestion.objects.get(id=parent_id, discussion=discussion)
+        except DiscussionQuestion.DoesNotExist:
+            return JsonResponse({'raise404': True, 'error': 'invalid_parent'})
+
+    DiscussionQuestion.objects.create(
+        discussion=discussion,
+        author=delegate,
+        parent=parent,
+        text=text,
+    )
+    broadcast_discussions()
+    return JsonResponse({'raise404': False})
+
+
+@login_required
+@require_POST
+def ajaxDiscussionQuestionReact(request):
+    delegate = current_delegate(request)
+    if delegate is None:
+        return JsonResponse({'raise404': True})
+    try:
+        question = DiscussionQuestion.objects.select_related('discussion').get(id=request.POST.get('questionId'))
+    except DiscussionQuestion.DoesNotExist:
+        return JsonResponse({'raise404': True})
+    if question.discussion.archived:
+        return JsonResponse({'raise404': True, 'error': 'discussion_closed'})
+
+    reaction = request.POST.get('reaction')
+    valid_reactions = [choice[0] for choice in DiscussionQuestionReaction.REACTION_CHOICES]
+    if reaction not in valid_reactions:
+        return JsonResponse({'raise404': True, 'error': 'invalid_reaction'})
+
+    existing = DiscussionQuestionReaction.objects.filter(question=question, delegate=delegate, reaction=reaction)
+    if existing.exists():
+        existing.delete()
+    else:
+        DiscussionQuestionReaction.objects.create(question=question, delegate=delegate, reaction=reaction)
     broadcast_discussions()
     return JsonResponse({'raise404': False})
 
@@ -884,7 +945,7 @@ def regoRequest(request):
 
             role = role if role else 'Delegate'
 
-            if User.objects.filter(username=email):
+            if User.objects.filter(username=email).exists() or Delegate.objects.filter(email=email).exists():
                 return render(request, 'councilApp/authTemplates/rego.html', {'regoForm':None, 'email':None, 'done':True, 'error':1, 'active_tab':'registration'})
 
             for oldToken in PendingRego.objects.filter(email=email):
@@ -930,30 +991,45 @@ def regoSetPassword(request, token):
     except:
         return render(request, 'councilApp/authTemplates/regoPassword.html', {'error':1, 'done':False})
 
-    if not User.objects.filter(username=tokenObj.email):
-        user = User.objects.create(username=tokenObj.email, password=settings.USER_TEMP_PASSWORD, email=tokenObj.email)
-    else:
-        user = User.objects.get(username=tokenObj.email)
+    existing_delegate = Delegate.objects.filter(email=tokenObj.email).first()
+    if existing_delegate:
+        tokenObj.active = False
+        tokenObj.save()
+        return render(request, 'councilApp/authTemplates/regoPassword.html', {'error':3, 'done':False})
+
+    user, _ = User.objects.get_or_create(
+        username=tokenObj.email,
+        defaults={'password': settings.USER_TEMP_PASSWORD, 'email': tokenObj.email},
+    )
+    if hasattr(user, 'delegate'):
+        tokenObj.active = False
+        tokenObj.save()
+        return render(request, 'councilApp/authTemplates/regoPassword.html', {'error':3, 'done':False})
 
     if request.method == 'POST':
         pwdForm = SetPasswordForm(user, request.POST)
         if pwdForm.is_valid():
-            pwdForm.save()
+            try:
+                with transaction.atomic():
+                    pwdForm.save()
+                    Delegate.objects.create(
+                        authClone=user,
+                        name=tokenObj.name,
+                        email=tokenObj.email,
+                        institution=tokenObj.institution,
+                        account_role=tokenObj.account_role,
+                        role=tokenObj.role,
+                        speakerNum=max([0]+[i.speakerNum for i in Delegate.objects.all()])+1,
+                        pronouns=tokenObj.pronouns,
+                        first_time=tokenObj.firstTime)
 
-            Delegate.objects.create(
-                authClone=user,
-                name=tokenObj.name,
-                email=tokenObj.email,
-                institution=tokenObj.institution,
-                account_role=tokenObj.account_role,
-                rep=tokenObj.account_role == Delegate.ROLE_REPRESENTATIVE,
-                role=tokenObj.role,
-                speakerNum=max([0]+[i.speakerNum for i in Delegate.objects.all()])+1,
-                pronouns=tokenObj.pronouns,
-                first_time=tokenObj.firstTime)
-
-            tokenObj.active = False
-            tokenObj.save()
+                    tokenObj.active = False
+                    tokenObj.save()
+            except IntegrityError:
+                logger.exception("Duplicate registration activation attempted for %s", tokenObj.email)
+                tokenObj.active = False
+                tokenObj.save()
+                return render(request, 'councilApp/authTemplates/regoPassword.html', {'error':3, 'done':False})
 
             return render(request, 'councilApp/authTemplates/regoPassword.html', {'error':0,  'done':True})
     else:

@@ -273,12 +273,17 @@ class Discussion(models.Model):
             'participants__delegate__institution',
             'speakers__delegate',
             'speakers__delegate__institution',
+            'questions__author',
+            'questions__author__institution',
+            'questions__reactions',
+            'questions__reactions__delegate',
         )
         return [discussion.to_json(delegate) for discussion in discussions]
 
     def to_json(self, delegate=None):
         participants = [participant.to_json() for participant in self.participants.all()]
         speakers = [speaker.to_json() for speaker in self.speakers.all().order_by('index')]
+        questions = [question.to_json(delegate) for question in self.questions.all().order_by('created_at')]
         current = self.current_speaker.to_json() if self.current_speaker else None
         next_speaker = self.next_waiting_speaker()
         moderator_options = []
@@ -306,6 +311,7 @@ class Discussion(models.Model):
             'additional_moderators': [moderator.to_json() for moderator in self.additional_moderators.all()],
             'moderator_options': moderator_options,
             'speakers': speakers,
+            'questions': questions,
             'user_is_moderator': self.user_can_moderate(delegate),
             'user_can_manage_moderators': self.user_can_manage_moderators(delegate),
             'user_is_participant': any(participant['delegate']['id'] == getattr(delegate, 'id', None) for participant in participants),
@@ -368,3 +374,59 @@ class DiscussionSpeaker(models.Model):
             'duration_seconds': self.duration_seconds,
             'status': self.status,
         }
+
+
+class DiscussionQuestion(models.Model):
+    discussion = models.ForeignKey(Discussion, models.CASCADE, related_name='questions')
+    author = models.ForeignKey(Delegate, models.CASCADE, related_name='discussion_questions')
+    parent = models.ForeignKey('self', models.CASCADE, null=True, blank=True, related_name='replies')
+    text = models.TextField(max_length=2000)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'DiscussionQuestion'
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f'{self.author.name}: {self.text[:40]}'
+
+    def to_json(self, delegate=None):
+        reaction_counts = {}
+        user_reactions = []
+        for reaction in self.reactions.all():
+            reaction_counts[reaction.reaction] = reaction_counts.get(reaction.reaction, 0) + 1
+            if delegate is not None and reaction.delegate_id == delegate.id:
+                user_reactions.append(reaction.reaction)
+        return {
+            'id': self.id,
+            'discussion_id': self.discussion_id,
+            'author': self.author.to_json(),
+            'parent_id': self.parent_id,
+            'text': self.text,
+            'created_at': self.created_at.isoformat(),
+            'reaction_counts': reaction_counts,
+            'user_reactions': user_reactions,
+        }
+
+
+class DiscussionQuestionReaction(models.Model):
+    REACTION_LIKE = 'like'
+    REACTION_AGREE = 'agree'
+    REACTION_QUESTION = 'question'
+    REACTION_CHOICES = [
+        (REACTION_LIKE, 'Like'),
+        (REACTION_AGREE, 'Agree'),
+        (REACTION_QUESTION, 'Question'),
+    ]
+
+    question = models.ForeignKey(DiscussionQuestion, models.CASCADE, related_name='reactions')
+    delegate = models.ForeignKey(Delegate, models.CASCADE, related_name='discussion_question_reactions')
+    reaction = models.CharField(max_length=20, choices=REACTION_CHOICES)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'DiscussionQuestionReaction'
+        unique_together = ('question', 'delegate', 'reaction')
+
+    def __str__(self):
+        return f'{self.delegate.name} {self.reaction} {self.question_id}'

@@ -17,6 +17,8 @@ urlpatterns = [
 	path('ajax/discussionReorderSpeakers/', views.ajaxDiscussionReorderSpeakers),
 	path('ajax/discussionUpdateSpeakerTime/', views.ajaxDiscussionUpdateSpeakerTime),
 	path('ajax/discussionTimerAction/', views.ajaxDiscussionTimerAction),
+	path('ajax/discussionQuestionAdd/', views.ajaxDiscussionQuestionAdd),
+	path('ajax/discussionQuestionReact/', views.ajaxDiscussionQuestionReact),
 	path('ajax/speakerAdd', views.ajaxSpeakerAdd),
 	path('ajax/speakerRemove', views.ajaxSpeakerRemove),
 	path('ajax/reorderSpeakers', views.ajaxSpeakersReorder),

@@ -3,7 +3,7 @@ from django.core.mail import send_mail
 from django.test import TestCase, override_settings
 from unittest.mock import Mock, patch
 
-from .models import Delegate, Discussion, DiscussionParticipant, DiscussionSpeaker, Institution, Poll, Vote
+from .models import Delegate, Discussion, DiscussionParticipant, DiscussionQuestion, DiscussionQuestionReaction, DiscussionSpeaker, Institution, PendingRego, Poll, Vote
 
 
 class ResendEmailBackendTests(TestCase):
@@ -389,3 +389,71 @@ class DiscussionTests(TestCase):
         self.assertEqual(discussion.current_speaker_id, speaker.id)
         self.assertEqual(discussion.timer_remaining_seconds, 75)
         self.assertEqual(speaker.status, DiscussionSpeaker.STATUS_CURRENT)
+
+    def test_discussion_question_can_be_posted_and_replied_to(self):
+        discussion = Discussion.objects.create(
+            title="Questions",
+            moderator=self.moderator,
+            discussion_type=Discussion.TYPE_INFORMAL,
+            default_speaker_seconds=30,
+        )
+
+        response = self.client.post(
+            "/ajax/discussionQuestionAdd/",
+            {"discussionId": discussion.id, "text": "What is the timeline?"},
+        )
+        question = DiscussionQuestion.objects.get()
+
+        reply_response = self.client.post(
+            "/ajax/discussionQuestionAdd/",
+            {"discussionId": discussion.id, "parentId": question.id, "text": "Following this too."},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(reply_response.status_code, 200)
+        self.assertEqual(DiscussionQuestion.objects.count(), 2)
+        self.assertEqual(DiscussionQuestion.objects.exclude(id=question.id).get().parent, question)
+
+    def test_discussion_question_reaction_toggles(self):
+        discussion = Discussion.objects.create(
+            title="Questions",
+            moderator=self.moderator,
+            discussion_type=Discussion.TYPE_INFORMAL,
+            default_speaker_seconds=30,
+        )
+        question = DiscussionQuestion.objects.create(
+            discussion=discussion,
+            author=self.moderator,
+            text="Support?",
+        )
+
+        first = self.client.post(
+            "/ajax/discussionQuestionReact/",
+            {"questionId": question.id, "reaction": "like"},
+        )
+        second = self.client.post(
+            "/ajax/discussionQuestionReact/",
+            {"questionId": question.id, "reaction": "like"},
+        )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(DiscussionQuestionReaction.objects.count(), 0)
+
+    def test_duplicate_delegate_email_activation_shows_error(self):
+        pending = PendingRego.objects.create(
+            token="duplicate-token",
+            active=True,
+            name="Duplicate",
+            email=self.moderator.email,
+            institution=self.institution,
+            account_role=Delegate.ROLE_MODERATOR,
+            role="Delegate",
+        )
+
+        response = self.client.get(f"/activate/{pending.token}/")
+
+        pending.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "already has an active account")
+        self.assertFalse(pending.active)

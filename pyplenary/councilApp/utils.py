@@ -93,6 +93,19 @@ def generateSpeakerListCSV(request):
             speaker.added_at,
         ])
 
+    discussionQuestionsIO = StringIO()
+    writer = csv.writer(discussionQuestionsIO)
+    writer.writerow(['Discussion', 'Question ID', 'Parent ID', 'Author', 'Text', 'Created at'])
+    for question in DiscussionQuestion.objects.all().select_related('discussion', 'author').order_by('discussion_id', 'created_at'):
+        writer.writerow([
+            question.discussion.title,
+            question.id,
+            question.parent_id or '',
+            question.author.name,
+            question.text,
+            question.created_at,
+        ])
+
     pollsIO = StringIO()
     writer = csv.writer(pollsIO)
     writer.writerow(['Motion', 'Time concluded', 'Result', 'Votes for', 'Votes against', 'Abstentions', 'All votes for', 'All votes against', 'All abstentions'])
@@ -133,6 +146,7 @@ def generateSpeakerListCSV(request):
     z.writestr("delegateSpeakerNumbers.csv", speakersIO.getvalue())
     z.writestr("activeDiscussions.csv", discussionsIO.getvalue())
     z.writestr("discussionSpeakers.csv", discussionSpeakersIO.getvalue())
+    z.writestr("discussionQuestions.csv", discussionQuestionsIO.getvalue())
     z.writestr("polls.csv", pollsIO.getvalue())
     z.writestr("agenda.csv", agendaIO.getvalue())
     z.writestr("reports.csv", reportsIO.getvalue())

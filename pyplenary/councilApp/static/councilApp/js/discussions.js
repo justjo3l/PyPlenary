@@ -173,6 +173,7 @@ function renderDiscussionDetail(discussion) {
 	renderModeratorPanel(discussion);
 	renderParticipants(discussion);
 	renderSpeakerList(discussion);
+	renderQuestionBox(discussion);
 	startCountdown();
 }
 
@@ -432,6 +433,139 @@ function renderSpeakerList(discussion) {
 			postDiscussion('/ajax/discussionReorderSpeakers/', {discussionId: discussion.id, order: order});
 		});
 	}
+}
+
+function renderQuestionBox(discussion) {
+	var section = document.createElement('div');
+	section.className = 'mt-4';
+	discussionDetail.appendChild(section);
+
+	var heading = document.createElement('h5');
+	heading.innerText = 'Q&A';
+	section.appendChild(heading);
+
+	if (discussion.status !== 'closed') {
+		var form = document.createElement('form');
+		form.className = 'mb-3';
+		section.appendChild(form);
+
+		var replyContext = document.createElement('div');
+		replyContext.className = 'alert alert-secondary py-2 d-none';
+		form.appendChild(replyContext);
+
+		var parentInput = document.createElement('input');
+		parentInput.type = 'hidden';
+		parentInput.name = 'parentId';
+		form.appendChild(parentInput);
+
+		var textarea = document.createElement('textarea');
+		textarea.className = 'form-control mb-2';
+		textarea.rows = 3;
+		textarea.maxLength = 2000;
+		textarea.placeholder = 'Ask a question or add a reply';
+		form.appendChild(textarea);
+
+		var actions = document.createElement('div');
+		actions.className = 'd-flex flex-wrap gap-2';
+		form.appendChild(actions);
+
+		actions.appendChild(button('Post', 'btn btn-primary btn-sm', function() {
+			postDiscussion('/ajax/discussionQuestionAdd/', {
+				discussionId: discussion.id,
+				parentId: parentInput.value,
+				text: textarea.value
+			});
+			textarea.value = '';
+			parentInput.value = '';
+		}));
+		actions.appendChild(button('Cancel reply', 'btn btn-outline-secondary btn-sm', function() {
+			parentInput.value = '';
+			replyContext.classList.add('d-none');
+			replyContext.innerText = '';
+		}));
+
+		form.addEventListener('submit', function(event) {
+			event.preventDefault();
+		});
+	}
+
+	var list = document.createElement('div');
+	list.className = 'list-group';
+	section.appendChild(list);
+
+	if (!discussion.questions || discussion.questions.length === 0) {
+		var empty = document.createElement('div');
+		empty.className = 'alert alert-secondary';
+		empty.innerText = 'No questions yet.';
+		list.appendChild(empty);
+		return;
+	}
+
+	var byParent = {};
+	discussion.questions.forEach(function(question) {
+		var parentId = question.parent_id || 'root';
+		if (!byParent[parentId]) {
+			byParent[parentId] = [];
+		}
+		byParent[parentId].push(question);
+	});
+
+	(byParent.root || []).forEach(function(question) {
+		renderQuestionItem(list, discussion, question, byParent, 0);
+	});
+}
+
+function renderQuestionItem(list, discussion, question, byParent, depth) {
+	var item = document.createElement('div');
+	item.className = 'list-group-item';
+	if (depth > 0) {
+		item.style.marginLeft = Math.min(depth, 3) * 1.5 + 'rem';
+	}
+	list.appendChild(item);
+
+	var meta = document.createElement('div');
+	meta.className = 'small text-muted mb-1';
+	meta.innerText = question.author.name + ' · ' + new Date(question.created_at).toLocaleString();
+	item.appendChild(meta);
+
+	var text = document.createElement('div');
+	text.innerText = question.text;
+	item.appendChild(text);
+
+	var actions = document.createElement('div');
+	actions.className = 'd-flex flex-wrap gap-2 mt-2';
+	item.appendChild(actions);
+
+	[
+		['like', 'Like'],
+		['agree', 'Agree'],
+		['question', 'Question']
+	].forEach(function(reaction) {
+		var key = reaction[0];
+		var label = reaction[1];
+		var count = question.reaction_counts[key] || 0;
+		var active = question.user_reactions.indexOf(key) !== -1;
+		actions.appendChild(button(label + (count ? ' ' + count : ''), active ? 'btn btn-primary btn-sm' : 'btn btn-outline-primary btn-sm', function() {
+			postDiscussion('/ajax/discussionQuestionReact/', {questionId: question.id, reaction: key});
+		}));
+	});
+
+	if (discussion.status !== 'closed') {
+		actions.appendChild(button('Reply', 'btn btn-outline-secondary btn-sm', function() {
+			var form = discussionDetail.querySelector('form');
+			var parentInput = form.querySelector('input[name="parentId"]');
+			var replyContext = form.querySelector('.alert');
+			var textarea = form.querySelector('textarea');
+			parentInput.value = question.id;
+			replyContext.innerText = 'Replying to ' + question.author.name + ': ' + question.text.slice(0, 120);
+			replyContext.classList.remove('d-none');
+			textarea.focus();
+		}));
+	}
+
+	(byParent[question.id] || []).forEach(function(reply) {
+		renderQuestionItem(list, discussion, reply, byParent, depth + 1);
+	});
 }
 
 function startCountdown() {
