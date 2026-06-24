@@ -19,12 +19,24 @@ class Institution(models.Model):
         return output
 
 class Delegate(models.Model):
+    ROLE_VIEWER = 'viewer'
+    ROLE_DELEGATE = 'delegate'
+    ROLE_REPRESENTATIVE = 'representative'
+    ROLE_MODERATOR = 'moderator'
+    ACCOUNT_ROLE_CHOICES = [
+        (ROLE_VIEWER, 'Viewer'),
+        (ROLE_DELEGATE, 'Delegate'),
+        (ROLE_REPRESENTATIVE, 'Representative'),
+        (ROLE_MODERATOR, 'Moderator'),
+    ]
+
     id = models.AutoField(primary_key=True)
     authClone = models.OneToOneField(User, models.PROTECT, db_column='authClone', null=True)
     name = models.CharField(max_length=100, null=True)
     email = models.EmailField(max_length=254, null=True, blank=True, unique=True)
     rep = models.BooleanField(default=False)
     superadmin = models.BooleanField(default=False)
+    account_role = models.CharField(max_length=20, choices=ACCOUNT_ROLE_CHOICES, default=ROLE_DELEGATE)
     institution = models.ForeignKey(Institution, models.CASCADE, null=True)
     role = models.CharField(max_length=200, null=True)
     speakerNum = models.IntegerField(default=0)
@@ -38,6 +50,22 @@ class Delegate(models.Model):
         output = f'{self.name} ({self.institution.shortName})'
         return output
 
+    def save(self, *args, **kwargs):
+        self.rep = self.account_role == self.ROLE_REPRESENTATIVE
+        super().save(*args, **kwargs)
+
+    @property
+    def can_create_discussions(self):
+        return self.superadmin or self.account_role == self.ROLE_MODERATOR
+
+    @property
+    def can_speak_in_informal_discussions(self):
+        return self.account_role in [self.ROLE_DELEGATE, self.ROLE_REPRESENTATIVE, self.ROLE_MODERATOR]
+
+    @property
+    def can_speak_in_formal_discussions(self):
+        return self.account_role == self.ROLE_REPRESENTATIVE
+
     def to_json(self):
         return {
             'id': self.id,
@@ -46,6 +74,8 @@ class Delegate(models.Model):
             'speakerNum': self.speakerNum,
             'first_time': self.first_time,
             'rep': self.rep,
+            'account_role': self.account_role,
+            'account_role_label': self.get_account_role_display(),
             'institution': self.institution.shortName if self.institution else '',
         }
 
@@ -131,6 +161,7 @@ class PendingRego(models.Model):
     name = models.CharField(max_length=100, null=True)
     email = models.EmailField(max_length=254, null=True)
     institution = models.ForeignKey(Institution, models.CASCADE, null=True)
+    account_role = models.CharField(max_length=20, choices=Delegate.ACCOUNT_ROLE_CHOICES, default=Delegate.ROLE_DELEGATE)
     role = models.CharField(max_length=200, null=True)
     pronouns = models.CharField(max_length=100, null=True)
     firstTime = models.BooleanField(default=False)
@@ -176,6 +207,7 @@ class Discussion(models.Model):
 
     title = models.CharField(max_length=200)
     moderator = models.ForeignKey(Delegate, models.CASCADE, related_name='moderated_discussions')
+    additional_moderators = models.ManyToManyField(Delegate, blank=True, related_name='co_moderated_discussions')
     discussion_type = models.CharField(max_length=20, choices=DISCUSSION_TYPE_CHOICES, default=TYPE_INFORMAL)
     default_speaker_seconds = models.PositiveIntegerField(default=60)
     active = models.BooleanField(default=False)
@@ -194,7 +226,28 @@ class Discussion(models.Model):
         return self.title
 
     def user_can_moderate(self, delegate):
+        return delegate is not None and (
+            self.moderator_id == delegate.id
+            or delegate.superadmin
+            or self.additional_moderators.filter(id=delegate.id).exists()
+        )
+
+    def user_can_manage_moderators(self, delegate):
         return delegate is not None and (self.moderator_id == delegate.id or delegate.superadmin)
+
+    def status_label(self):
+        if self.archived:
+            return 'closed'
+        if self.active:
+            return 'active'
+        return 'pending'
+
+    def delegate_can_speak(self, delegate):
+        if delegate is None:
+            return False
+        if self.discussion_type == self.TYPE_FORMAL:
+            return delegate.can_speak_in_formal_discussions
+        return delegate.can_speak_in_informal_discussions
 
     def timer_remaining(self):
         if not self.timer_running or not self.timer_started_at:
@@ -207,13 +260,15 @@ class Discussion(models.Model):
 
     @staticmethod
     def discussions_for_ws(delegate=None):
-        discussions = Discussion.objects.filter(archived=False).select_related(
+        discussions = Discussion.objects.all().select_related(
             'moderator',
             'moderator__institution',
             'current_speaker',
             'current_speaker__delegate',
             'current_speaker__delegate__institution',
         ).prefetch_related(
+            'additional_moderators',
+            'additional_moderators__institution',
             'participants__delegate',
             'participants__delegate__institution',
             'speakers__delegate',
@@ -226,6 +281,13 @@ class Discussion(models.Model):
         speakers = [speaker.to_json() for speaker in self.speakers.all().order_by('index')]
         current = self.current_speaker.to_json() if self.current_speaker else None
         next_speaker = self.next_waiting_speaker()
+        moderator_options = []
+        if self.user_can_manage_moderators(delegate):
+            used_moderator_ids = [self.moderator_id] + list(self.additional_moderators.values_list('id', flat=True))
+            moderator_options = [
+                moderator.to_json()
+                for moderator in Delegate.objects.filter(account_role=Delegate.ROLE_MODERATOR).exclude(id__in=used_moderator_ids).exclude(speakerNum=0).order_by('name')
+            ]
         return {
             'id': self.id,
             'title': self.title,
@@ -233,15 +295,22 @@ class Discussion(models.Model):
             'discussion_type': self.discussion_type,
             'default_speaker_seconds': self.default_speaker_seconds,
             'active': self.active,
+            'archived': self.archived,
+            'status': self.status_label(),
             'timer_running': self.timer_running,
             'timer_remaining_seconds': self.timer_remaining(),
             'current_speaker': current,
             'next_speaker': next_speaker.to_json() if next_speaker else None,
             'participants': participants,
+            'participant_count': len(participants),
+            'additional_moderators': [moderator.to_json() for moderator in self.additional_moderators.all()],
+            'moderator_options': moderator_options,
             'speakers': speakers,
             'user_is_moderator': self.user_can_moderate(delegate),
+            'user_can_manage_moderators': self.user_can_manage_moderators(delegate),
             'user_is_participant': any(participant['delegate']['id'] == getattr(delegate, 'id', None) for participant in participants),
-            'user_is_on_speaker_list': any(speaker['delegate']['id'] == getattr(delegate, 'id', None) and speaker['status'] in ('waiting', 'current') for speaker in speakers),
+            'user_is_on_speaker_queue': any(speaker['delegate']['id'] == getattr(delegate, 'id', None) and speaker['status'] in ('waiting', 'current') for speaker in speakers),
+            'user_can_speak': self.delegate_can_speak(delegate),
         }
 
 

@@ -130,7 +130,7 @@ def generateSpeakerListCSV(request):
     response['Content-Disposition'] = 'attachment; filename=councilAppData.zip'
 
     z = zipfile.ZipFile(response,'w') 
-    z.writestr("speakerList.csv", speakersIO.getvalue())
+    z.writestr("delegateSpeakerNumbers.csv", speakersIO.getvalue())
     z.writestr("activeDiscussions.csv", discussionsIO.getvalue())
     z.writestr("discussionSpeakers.csv", discussionSpeakersIO.getvalue())
     z.writestr("polls.csv", pollsIO.getvalue())
@@ -160,6 +160,16 @@ def addUserFromJSON(account, forceResend = False):
             toReturn['errorMsg'] = f"{account['Institution']} is an invalid institution"
             return toReturn
         
+        account_role = (account.get('Account role') or account.get('Access role') or Delegate.ROLE_DELEGATE).strip().lower()
+        valid_roles = dict(Delegate.ACCOUNT_ROLE_CHOICES)
+        valid_roles_by_label = {label.lower(): key for key, label in Delegate.ACCOUNT_ROLE_CHOICES}
+        if account_role in valid_roles_by_label:
+            account_role = valid_roles_by_label[account_role]
+        if account_role not in valid_roles:
+            toReturn['errorCode'] = 'Invalid Account Role'
+            toReturn['errorMsg'] = f"{account_role} is not a valid account role"
+            return toReturn
+
         [email, name, institution, role, pronouns, firstTime] = [''.join(account['Email'].lower().split()),
             account['Name'],
             institution,
@@ -206,7 +216,7 @@ def addUserFromJSON(account, forceResend = False):
         plain_message = strip_tags(html_message)
         email_from = settings.DEFAULT_FROM_EMAIL
         send_mail(subject, plain_message, email_from, [email], html_message=html_message)
-        PendingRego.objects.create(token=token, email=email, name=name, institution=institution, role=role, pronouns=pronouns, firstTime=firstTime)
+        PendingRego.objects.create(token=token, email=email, name=name, institution=institution, account_role=account_role, role=role, pronouns=pronouns, firstTime=firstTime)
         
         toReturn['success'] = True
 

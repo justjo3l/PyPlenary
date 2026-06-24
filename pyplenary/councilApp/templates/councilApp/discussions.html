@@ -1,0 +1,50 @@
+{% extends 'councilApp/base.html' %}
+{% load crispy_forms_tags %}
+{% load static %}
+
+{% comment %}
+    Copyright © 2021-2026  Lee Yingtong Li (RunasSudo), Allen Gu
+    Modernized and maintained © 2026 Joel Jose
+{% endcomment %}
+
+{% block title %}Active Discussions - Council Webapp{% endblock %}
+
+{% block content %}
+  <div class="mb-4">
+    <h2 class="mb-3">Active Discussions</h2>
+
+    {% if can_create_discussions %}
+      <form method="post" class="mb-4">
+        {% csrf_token %}
+        <div class="row g-2 align-items-end">
+          <div class="col-12 col-lg-5">
+            {{ discussionForm.title|as_crispy_field }}
+          </div>
+          <div class="col-12 col-lg-4">
+            {{ discussionForm.discussion_type|as_crispy_field }}
+          </div>
+          <div class="col-12 col-lg-2">
+            {{ discussionForm.default_speaker_seconds|as_crispy_field }}
+          </div>
+          <div class="col-12 col-lg-1">
+            <button type="submit" class="btn btn-success w-100">Create</button>
+          </div>
+        </div>
+      </form>
+    {% endif %}
+
+    <div id="discussion-list" data-mode="list">
+      <div class="text-muted text-center">
+        <div class="spinner-border" role="status"></div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block script %}
+  {{ block.super }}
+  <script>
+    var delegate_id = {{ current_delegate.id }};
+  </script>
+  <script src="{% static 'councilApp/js/discussions.js' %}"></script>
+{% endblock %}

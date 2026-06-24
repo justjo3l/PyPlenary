@@ -6,10 +6,12 @@ from . import views
 urlpatterns = [
 	path('', views.index),
 	path('index.html', views.index),
-	path('speaker_list/', views.speakerList),
+	path('discussions/', views.discussions),
+	path('discussions/<int:discussion_id>/', views.discussionDetail),
 	path('ajax/discussionJoin/', views.ajaxDiscussionJoin),
 	path('ajax/discussionExit/', views.ajaxDiscussionExit),
 	path('ajax/discussionArchive/', views.ajaxDiscussionArchive),
+	path('ajax/discussionAddModerator/', views.ajaxDiscussionAddModerator),
 	path('ajax/discussionAddSpeaker/', views.ajaxDiscussionAddSpeaker),
 	path('ajax/discussionRemoveSpeaker/', views.ajaxDiscussionRemoveSpeaker),
 	path('ajax/discussionReorderSpeakers/', views.ajaxDiscussionReorderSpeakers),
@@ -58,6 +60,4 @@ urlpatterns = [
 	path('ajax/assignRep/', views.ajaxAssignRep),
 	path('ajax/ResetAndWipe/', views.ajaxResetAndWipe),
 	path('ajax/addOneUser/', views.ajaxAddOneUser),
-	path('app_admin/assign_admins/', views.appAdminAssignAdmins),
-	path('ajax/assignAdmin/', views.ajaxAssignAdmin),
 ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

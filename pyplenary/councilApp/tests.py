@@ -124,8 +124,8 @@ class MutatingEndpointMethodTests(TestCase):
             authClone=self.user,
             name="Test Delegate",
             email="delegate@example.com",
-            rep=True,
             superadmin=True,
+            account_role=Delegate.ROLE_REPRESENTATIVE,
             institution=self.institution,
             role="Delegate",
             speakerNum=1,
@@ -194,8 +194,8 @@ class DiscussionTests(TestCase):
             authClone=self.mod_user,
             name="Moderator",
             email="moderator@example.com",
-            rep=True,
             superadmin=False,
+            account_role=Delegate.ROLE_MODERATOR,
             institution=self.institution,
             role="Moderator",
             speakerNum=1,
@@ -209,7 +209,7 @@ class DiscussionTests(TestCase):
             authClone=self.rep_user,
             name="Rep",
             email="rep@example.com",
-            rep=True,
+            account_role=Delegate.ROLE_REPRESENTATIVE,
             institution=self.institution,
             role="Rep",
             speakerNum=2,
@@ -223,7 +223,7 @@ class DiscussionTests(TestCase):
             authClone=self.non_rep_user,
             name="Delegate",
             email="delegate@example.com",
-            rep=False,
+            account_role=Delegate.ROLE_DELEGATE,
             institution=self.institution,
             role="Delegate",
             speakerNum=3,
@@ -232,7 +232,7 @@ class DiscussionTests(TestCase):
 
     def test_create_discussion_from_page_form(self):
         response = self.client.post(
-            "/speaker_list/",
+            "/discussions/",
             {
                 "title": "Budget discussion",
                 "discussion_type": "informal",
@@ -245,6 +245,21 @@ class DiscussionTests(TestCase):
         self.assertEqual(discussion.moderator, self.moderator)
         self.assertEqual(discussion.default_speaker_seconds, 90)
         self.assertTrue(DiscussionParticipant.objects.filter(discussion=discussion, delegate=self.moderator).exists())
+
+    def test_delegate_cannot_create_discussion(self):
+        self.client.login(username="delegate@example.com", password="password")
+
+        response = self.client.post(
+            "/discussions/",
+            {
+                "title": "Unauthorised discussion",
+                "discussion_type": "informal",
+                "default_speaker_seconds": 90,
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(Discussion.objects.count(), 0)
 
     def test_formal_discussion_rejects_non_rep_speaker(self):
         discussion = Discussion.objects.create(
@@ -264,7 +279,7 @@ class DiscussionTests(TestCase):
         self.assertEqual(DiscussionSpeaker.objects.count(), 0)
         self.assertEqual(response.json()["error"], "formal_requires_rep")
 
-    def test_moderator_can_add_participant_to_informal_speaker_list(self):
+    def test_moderator_can_add_participant_to_informal_speaker_queue(self):
         discussion = Discussion.objects.create(
             title="Informal discussion",
             moderator=self.moderator,
@@ -282,6 +297,70 @@ class DiscussionTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(speaker.delegate, self.non_rep)
         self.assertEqual(speaker.duration_seconds, 45)
+
+    def test_viewer_cannot_join_speaker_queue(self):
+        viewer_user = User.objects.create_user(
+            username="viewer@example.com",
+            email="viewer@example.com",
+            password="password",
+        )
+        viewer = Delegate.objects.create(
+            authClone=viewer_user,
+            name="Viewer",
+            email="viewer@example.com",
+            account_role=Delegate.ROLE_VIEWER,
+            institution=self.institution,
+            role="Viewer",
+            speakerNum=4,
+        )
+        discussion = Discussion.objects.create(
+            title="Informal discussion",
+            moderator=self.moderator,
+            discussion_type=Discussion.TYPE_INFORMAL,
+            default_speaker_seconds=45,
+        )
+        DiscussionParticipant.objects.create(discussion=discussion, delegate=viewer)
+        self.client.login(username="viewer@example.com", password="password")
+
+        response = self.client.post(
+            "/ajax/discussionAddSpeaker/",
+            {"discussionId": discussion.id},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(DiscussionSpeaker.objects.count(), 0)
+        self.assertEqual(response.json()["error"], "cannot_speak")
+
+    def test_original_moderator_can_add_moderator(self):
+        co_mod_user = User.objects.create_user(
+            username="co@example.com",
+            email="co@example.com",
+            password="password",
+        )
+        co_moderator = Delegate.objects.create(
+            authClone=co_mod_user,
+            name="Co Moderator",
+            email="co@example.com",
+            account_role=Delegate.ROLE_MODERATOR,
+            institution=self.institution,
+            role="Moderator",
+            speakerNum=5,
+        )
+        discussion = Discussion.objects.create(
+            title="Shared moderation",
+            moderator=self.moderator,
+            discussion_type=Discussion.TYPE_INFORMAL,
+            default_speaker_seconds=45,
+        )
+
+        response = self.client.post(
+            "/ajax/discussionAddModerator/",
+            {"discussionId": discussion.id, "delegateId": co_moderator.id},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(discussion.additional_moderators.filter(id=co_moderator.id).exists())
+        self.assertTrue(DiscussionParticipant.objects.filter(discussion=discussion, delegate=co_moderator).exists())
 
     def test_start_timer_promotes_next_waiting_speaker(self):
         discussion = Discussion.objects.create(

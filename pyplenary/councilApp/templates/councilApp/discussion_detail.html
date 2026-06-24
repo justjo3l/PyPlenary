@@ -1,0 +1,36 @@
+{% extends 'councilApp/base.html' %}
+{% load static %}
+
+{% comment %}
+    Copyright © 2021-2026  Lee Yingtong Li (RunasSudo), Allen Gu
+    Modernized and maintained © 2026 Joel Jose
+{% endcomment %}
+
+{% block title %}{{ discussion.title }} - Active Discussions{% endblock %}
+
+{% block content %}
+  <div class="mb-3">
+    <a href="/discussions/" class="btn btn-outline-secondary btn-sm">Back to discussions</a>
+  </div>
+
+  <div id="discussion-detail" data-mode="detail" data-discussion-id="{{ discussion.id }}">
+    <div class="text-muted text-center">
+      <div class="spinner-border" role="status"></div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block head %}
+  {{ block.super }}
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/dragula@3.7.3/dist/dragula.min.css" integrity="sha256-kbjOP63kZCB+lxhssN+h5qDCLSLI7EhP3/r2S/jPCd4=" crossorigin="anonymous">
+{% endblock %}
+
+{% block script %}
+  {{ block.super }}
+  <script src="https://cdn.jsdelivr.net/npm/dragula@3.7.3/dist/dragula.min.js" integrity="sha256-egj5xxtj40Ds0GUbObVZ7m2LEOsnvu9i5Ogtmd1I+jk=" crossorigin="anonymous"></script>
+  <script>
+    var delegate_id = {{ current_delegate.id }};
+    var discussion_id = {{ discussion.id }};
+  </script>
+  <script src="{% static 'councilApp/js/discussions.js' %}"></script>
+{% endblock %}

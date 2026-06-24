@@ -41,9 +41,10 @@ def broadcast_discussions():
     )
 
 
-def discussion_or_404(discussion_id):
+def discussion_or_404(discussion_id, include_archived=False):
     try:
-        return Discussion.objects.get(id=discussion_id, archived=False)
+        queryset = Discussion.objects.all() if include_archived else Discussion.objects.filter(archived=False)
+        return queryset.get(id=discussion_id)
     except Discussion.DoesNotExist:
         raise Http404()
 
@@ -62,17 +63,25 @@ def seconds_from_request(request, field_name, default):
         seconds = default
     return min(900, max(15, seconds))
 
+
+def discussion_moderator_options(discussion):
+    return Delegate.objects.filter(account_role=Delegate.ROLE_MODERATOR).exclude(
+        id__in=[discussion.moderator_id] + list(discussion.additional_moderators.values_list('id', flat=True))
+    ).exclude(speakerNum=0).order_by('name')
+
 def index(request):
     return render(request, 'councilApp/index.html', {'active_tab':'index'})
 
 @login_required
 @ensure_csrf_cookie
-def speakerList(request):
+def discussions(request):
     delegate = current_delegate(request)
     if delegate is None:
-        return render(request, 'councilApp/authTemplates/noDelegate.html', {'active_tab':'speaker_list'})
+        return render(request, 'councilApp/authTemplates/noDelegate.html', {'active_tab':'discussions'})
 
     if request.method == 'POST':
+        if not delegate.can_create_discussions:
+            return HttpResponseForbidden()
         discussionForm = DiscussionCreateForm(request.POST)
         if discussionForm.is_valid():
             discussion = Discussion.objects.create(
@@ -84,15 +93,30 @@ def speakerList(request):
             )
             DiscussionParticipant.objects.get_or_create(discussion=discussion, delegate=delegate)
             broadcast_discussions()
-            return redirect('/speaker_list/')
+            return redirect(f'/discussions/{discussion.id}/')
     else:
         discussionForm = DiscussionCreateForm()
 
-    return render(request, 'councilApp/speaker_list.html', {
-        'active_tab':'speaker_list',
+    return render(request, 'councilApp/discussions.html', {
+        'active_tab':'discussions',
         'discussionForm': discussionForm,
+        'can_create_discussions': delegate.can_create_discussions,
     })
 
+
+@login_required
+@ensure_csrf_cookie
+def discussionDetail(request, discussion_id):
+    delegate = current_delegate(request)
+    if delegate is None:
+        return render(request, 'councilApp/authTemplates/noDelegate.html', {'active_tab':'discussions'})
+
+    discussion = discussion_or_404(discussion_id, include_archived=True)
+    return render(request, 'councilApp/discussion_detail.html', {
+        'active_tab':'discussions',
+        'discussion': discussion,
+        'moderator_options': discussion_moderator_options(discussion),
+    })
 
 @login_required
 @require_POST
@@ -145,6 +169,25 @@ def ajaxDiscussionArchive(request):
 
 @login_required
 @require_POST
+def ajaxDiscussionAddModerator(request):
+    discussion = discussion_or_404(request.POST.get('discussionId'))
+    if require_discussion_moderator(request, discussion) is None:
+        return JsonResponse({'raise404': True})
+    if not discussion.user_can_manage_moderators(current_delegate(request)):
+        return JsonResponse({'raise404': True})
+    try:
+        moderator = Delegate.objects.get(id=request.POST.get('delegateId'), account_role=Delegate.ROLE_MODERATOR)
+    except Delegate.DoesNotExist:
+        return JsonResponse({'raise404': True})
+    if moderator.id != discussion.moderator_id:
+        discussion.additional_moderators.add(moderator)
+        DiscussionParticipant.objects.get_or_create(discussion=discussion, delegate=moderator)
+    broadcast_discussions()
+    return JsonResponse({'raise404': False})
+
+
+@login_required
+@require_POST
 def ajaxDiscussionAddSpeaker(request):
     delegate = current_delegate(request)
     if delegate is None:
@@ -161,8 +204,9 @@ def ajaxDiscussionAddSpeaker(request):
         return JsonResponse({'raise404': True})
     if not DiscussionParticipant.objects.filter(discussion=discussion, delegate=target).exists():
         return JsonResponse({'raise404': True, 'error': 'not_participant'})
-    if discussion.discussion_type == Discussion.TYPE_FORMAL and not target.rep:
-        return JsonResponse({'raise404': True, 'error': 'formal_requires_rep'})
+    if not discussion.delegate_can_speak(target):
+        error = 'formal_requires_rep' if discussion.discussion_type == Discussion.TYPE_FORMAL else 'cannot_speak'
+        return JsonResponse({'raise404': True, 'error': error})
     if DiscussionSpeaker.objects.filter(discussion=discussion, delegate=target, status__in=[DiscussionSpeaker.STATUS_WAITING, DiscussionSpeaker.STATUS_CURRENT]).exists():
         return JsonResponse({'raise404': False})
 
@@ -185,7 +229,8 @@ def ajaxDiscussionRemoveSpeaker(request):
         speaker = DiscussionSpeaker.objects.select_related('discussion').get(id=speaker_id)
     except DiscussionSpeaker.DoesNotExist:
         return JsonResponse({'raise404': True})
-    if require_discussion_moderator(request, speaker.discussion) is None:
+    delegate = current_delegate(request)
+    if require_discussion_moderator(request, speaker.discussion) is None and speaker.delegate_id != getattr(delegate, 'id', None):
         return JsonResponse({'raise404': True})
     discussion = speaker.discussion
     if discussion.current_speaker_id == speaker.id:
@@ -250,6 +295,10 @@ def ajaxDiscussionTimerAction(request):
             discussion.timer_remaining_seconds = discussion.timer_remaining()
             discussion.timer_running = False
             discussion.timer_started_at = None
+            discussion.save()
+        elif action == 'resume' and current:
+            discussion.timer_running = True
+            discussion.timer_started_at = timezone.now()
             discussion.save()
         elif action == 'restart' and current:
             discussion.timer_remaining_seconds = current.duration_seconds
@@ -825,9 +874,10 @@ def regoRequest(request):
 
         if regoForm.is_valid():
 
-            [email, name, institution, role, pronouns, firstTime] = [regoForm.cleaned_data.get('email').lower(),
+            [email, name, institution, account_role, role, pronouns, firstTime] = [regoForm.cleaned_data.get('email').lower(),
                 regoForm.cleaned_data.get('name'),
                 regoForm.cleaned_data.get('institution'),
+                regoForm.cleaned_data.get('account_role'),
                 regoForm.cleaned_data.get('role'),
                 regoForm.cleaned_data.get('pronouns'),
                 regoForm.cleaned_data.get('firstTime'),]
@@ -844,7 +894,7 @@ def regoRequest(request):
             token = generateToken()
             while len(PendingRego.objects.filter(token=token)) > 0:
                 token = generateToken()
-            PendingRego.objects.create(token=token, email=email, name=name, institution=institution, role=role, pronouns=pronouns, firstTime=firstTime)
+            PendingRego.objects.create(token=token, email=email, name=name, institution=institution, account_role=account_role, role=role, pronouns=pronouns, firstTime=firstTime)
 
             try:
                 activateLink = f'{settings.WEB_DOMAIN}/activate/{token}'
@@ -895,6 +945,8 @@ def regoSetPassword(request, token):
                 name=tokenObj.name,
                 email=tokenObj.email,
                 institution=tokenObj.institution,
+                account_role=tokenObj.account_role,
+                rep=tokenObj.account_role == Delegate.ROLE_REPRESENTATIVE,
                 role=tokenObj.role,
                 speakerNum=max([0]+[i.speakerNum for i in Delegate.objects.all()])+1,
                 pronouns=tokenObj.pronouns,
@@ -919,7 +971,7 @@ def profile(request):
     done = False
     emailChanged = False
 
-    changeDetailForm = RegoForm({
+    changeDetailForm = ProfileForm({
         'name': delegate.name,
         'email': delegate.email,
         'institution': delegate.institution,
@@ -928,7 +980,7 @@ def profile(request):
         'firstTime': delegate.first_time})
 
     if request.method == 'POST':
-        changeDetailForm = RegoForm(request.POST)
+        changeDetailForm = ProfileForm(request.POST)
 
         if changeDetailForm.is_valid():
             email = changeDetailForm.cleaned_data.get('email').lower()
@@ -994,7 +1046,7 @@ def appAdminAddUsersTemplate(request):
     response['Content-Disposition'] = 'attachment; filename="add_user_template.csv"'
 
     writer = csv.writer(response)
-    writer.writerow(['Name', 'Email', 'Role', 'Institution', 'Pronouns', 'First time'])
+    writer.writerow(['Name', 'Email', 'Account role', 'Role', 'Institution', 'Pronouns', 'First time'])
 
     return response
 
@@ -1084,52 +1136,14 @@ def ajaxAssignRep(request):
         return JsonResponse({'raise404':True, 'newRep':None})
     for otherDelegate in Delegate.objects.filter(institution=delegate.institution):
         otherDelegate.rep = False
+        if otherDelegate.account_role == Delegate.ROLE_REPRESENTATIVE:
+            otherDelegate.account_role = Delegate.ROLE_DELEGATE
         otherDelegate.save()
     delegate.rep = True
+    delegate.account_role = Delegate.ROLE_REPRESENTATIVE
     delegate.save()
 
     data = {'raise404':False, 'newRep':[delegate.name, delegate.institution.name]}
-    return JsonResponse(data)
-
-@login_required
-@ensure_csrf_cookie
-def appAdminAssignAdmins(request):
-    if not request.user.delegate.superadmin:
-        raise Http404()
-    validDelegates = list(Delegate.objects.filter(superadmin=True).exclude(id=request.user.delegate.id).exclude(speakerNum=0).exclude(speakerNum=0).order_by('speakerNum'))
-    validDelegates += list(Delegate.objects.filter(superadmin=False).exclude(id=request.user.delegate.id).exclude(speakerNum=0).exclude(speakerNum=0).order_by('speakerNum'))
-    return render(request, 'councilApp/adminToolTemplates/assign_admin.html', {'active_tab':'app_admin', 'validDelegates':validDelegates})
-
-@login_required
-@require_POST
-def ajaxAssignAdmin(request):
-    if not request.user.delegate.superadmin:
-        raise Http404()
-    try:
-        delegateId = request.POST.get('delegateId', None)
-        toAssign = int(request.POST.get('toAssign', None))
-        delegate = Delegate.objects.get(id=delegateId)
-    except:
-        return JsonResponse({'raise404':True})
-
-    if delegate.id == request.user.delegate.id:
-        return JsonResponse({'raise404':True})
-
-    if toAssign:
-        delegate.superadmin = True
-        delegate.save()
-        delegate.authClone.is_superuser = True
-        delegate.authClone.is_staff = True
-        delegate.authClone.save()
-        data = {'raise404':False, 'adminUser':delegate.name, 'hasAssigned':'assigned'}
-    else:
-        delegate.superadmin = False
-        delegate.save()
-        delegate.authClone.is_superuser = False
-        delegate.authClone.is_staff = False
-        delegate.authClone.save()
-        data = {'raise404':False, 'adminUser':delegate.name, 'hasAssigned':'unassigned'}
-
     return JsonResponse(data)
 
 @login_required

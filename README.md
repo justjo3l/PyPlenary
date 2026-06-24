@@ -170,7 +170,8 @@ Main flows:
 - Admin CSV invitations use `/app_admin/add_users/` and `addUserFromJSON()`, which also creates `PendingRego` rows and activation emails.
 - Password reset begins at `/password_change_request/`, creates a `ResetToken`, and emails `/password_reset/<token>/`.
 - Logged-in password changes happen at `/password_reset_logged/`.
-- Admin/staff status is controlled by the app admin pages, especially `/app_admin/assign_admins/`.
+- Access roles are `Viewer`, `Delegate`, `Representative`, and `Moderator`. Viewers cannot speak, delegates can speak in informal discussions, representatives can speak in formal and informal discussions, and moderators can create and run discussions.
+- Admin/staff accounts are created server-side with Django management commands or the Django admin database, not through the public registration form or app admin pages.
 
 Primary admin identity is configured with `PYPLENARY_ADMIN_EMAIL` and `PYPLENARY_ADMIN_NAME`. User-facing support email is configured with `PYPLENARY_SUPPORT_EMAIL`. Outgoing email sender is `DEFAULT_FROM_EMAIL`.
 

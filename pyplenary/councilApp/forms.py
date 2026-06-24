@@ -29,9 +29,30 @@ class RegoForm(forms.Form):
         widget=forms.TextInput(attrs={'placeholder': 'Email'}), required=True)
     institution = forms.ModelChoiceField(label="Institution", help_text='Please select your institution.', 
         queryset=Institution.objects.all(), required=True)
-    role = forms.CharField(max_length=200, label='Role/Position(s) (Optional)', help_text='Please enter your role/position(s) within AMSA or MedSoc, if applicable.', 
+    account_role = forms.ChoiceField(
+        label='Access role',
+        choices=Delegate.ACCOUNT_ROLE_CHOICES,
+        initial=Delegate.ROLE_VIEWER,
+        help_text='Viewers cannot speak. Delegates can speak in informal discussions. Representatives can speak in formal and informal discussions. Moderators can create and run discussions.',
+        required=True,
+    )
+    role = forms.CharField(max_length=200, label='Role/Position(s) (Optional)', help_text='Please enter your position/title within AMSA or MedSoc, if applicable.', 
         widget=forms.TextInput(attrs={'placeholder': 'Role/Position(s)'}), required=False)
     pronouns = forms.CharField(max_length=100, label='Pronouns (Optional)', help_text='Please enter your pronouns if you wish. This will be publicly displayed.', 
+        widget=forms.TextInput(attrs={'placeholder': 'Pronouns'}), required=False)
+    firstTime = forms.BooleanField(required = False, label='First-time Council attendee', help_text='Is this your first time at Council?')
+
+
+class ProfileForm(forms.Form):
+    name = forms.CharField(max_length=100, label='Full name', help_text='Please set your full name as you want it displayed.',
+        widget=forms.TextInput(attrs={'placeholder': 'Full name'}), required=True)
+    email = forms.EmailField(max_length=254, label="Email", help_text='Please enter your email address.',
+        widget=forms.TextInput(attrs={'placeholder': 'Email'}), required=True)
+    institution = forms.ModelChoiceField(label="Institution", help_text='Please select your institution.',
+        queryset=Institution.objects.all(), required=True)
+    role = forms.CharField(max_length=200, label='Role/Position(s) (Optional)', help_text='Please enter your position/title within AMSA or MedSoc, if applicable.',
+        widget=forms.TextInput(attrs={'placeholder': 'Role/Position(s)'}), required=False)
+    pronouns = forms.CharField(max_length=100, label='Pronouns (Optional)', help_text='Please enter your pronouns if you wish. This will be publicly displayed.',
         widget=forms.TextInput(attrs={'placeholder': 'Pronouns'}), required=False)
     firstTime = forms.BooleanField(required = False, label='First-time Council attendee', help_text='Is this your first time at Council?')
 
