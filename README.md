@@ -37,27 +37,37 @@ Important variables:
 - `SECRET_KEY`, `COUNCIL_URL`, `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`
 - `PGHOST`, `PGDATABASE`, `PGUSER`, `DBPASS`, `PGPORT`
 - `REDIS_URL` for production WebSocket fanout
-- `RESEND_API_KEY`, `DEFAULT_FROM_EMAIL` for HTTPS email delivery
+- `EMAIL_PROVIDER`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `DEFAULT_FROM_EMAIL` for email delivery
 - `PYPLENARY_AGENDA_URI`, `PYPLENARY_REPORTS_URI`, `PYPLENARY_POLICIES_URI`, `PYPLENARY_SOCIALS_URI`, `PYPLENARY_NODES_URI`
 - `PYPLENARY_ADMIN_NAME`, `PYPLENARY_ADMIN_EMAIL`, `PYPLENARY_SUPPORT_EMAIL`
 
 ## Email Delivery
 
-Production email should use Resend over HTTPS, which avoids SMTP ports that may be blocked by the host.
+Production email is configured through Django's email backend. This deployment currently uses Gmail SMTP.
 
 Railway variables:
 
 ```text
-RESEND_API_KEY=re_...
-DEFAULT_FROM_EMAIL="Your Site <onboarding@resend.dev>"
-PYPLENARY_SUPPORT_EMAIL=your-support-email@example.com
-PYPLENARY_ADMIN_EMAIL=your-admin-email@example.com
+EMAIL_PROVIDER=smtp
+EMAIL_BACKEND=
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_USE_SSL=0
+EMAIL_USE_TLS=1
+EMAIL_HOST_USER=amsaassistant@gmail.com
+EMAIL_HOST_PASSWORD=<gmail-app-password-without-spaces>
+DEFAULT_FROM_EMAIL=amsaassistant@gmail.com
+EMAIL_TIMEOUT=10
+PYPLENARY_SUPPORT_EMAIL=amsaassistant@gmail.com
+PYPLENARY_ADMIN_EMAIL=amsaassistant@gmail.com
 PYPLENARY_ADMIN_NAME=Joel Jose
 ```
 
-If you verify your own domain in Resend, replace `DEFAULT_FROM_EMAIL` with a sender from that domain, for example `National Council <no-reply@yourdomain.com>`.
+For Gmail, `EMAIL_HOST_PASSWORD` must be a Google app password, not the normal Gmail password. Google displays app passwords in groups with spaces; enter it in Railway without spaces.
 
-When `RESEND_API_KEY` is present and `EMAIL_BACKEND` is not explicitly set, the app uses `councilApp.email_backends.ResendEmailBackend`. To test without sending real email, set:
+If you previously tested Resend, either remove `RESEND_API_KEY` or leave `EMAIL_PROVIDER=smtp`. Resend is only used when `EMAIL_PROVIDER=resend`.
+
+To test without sending real email, set:
 
 ```text
 EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend

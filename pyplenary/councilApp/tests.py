@@ -17,6 +17,7 @@ class ResendEmailBackendTests(TestCase):
     @patch("councilApp.email_backends.requests.post")
     def test_send_mail_posts_to_resend_api(self, mock_post):
         response = Mock()
+        response.status_code = 200
         response.raise_for_status.return_value = None
         mock_post.return_value = response
 

@@ -63,6 +63,12 @@ class ResendEmailBackend(BaseEmailBackend):
                 json=payload,
                 timeout=self.timeout,
             )
+            if response.status_code >= 400:
+                logger.error(
+                    "Resend API rejected email with status %s: %s",
+                    response.status_code,
+                    response.text,
+                )
             response.raise_for_status()
             return True
         except requests.RequestException:
