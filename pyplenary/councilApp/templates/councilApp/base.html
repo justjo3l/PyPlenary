@@ -33,16 +33,8 @@
               <a class="nav-link {% if active_tab == 'index' %}active{% endif %}" aria-current="page" href="/">Home</a>
             </li>
 
-            <li class="nav-item dropdown">
-              <a class="nav-link dropdown-toggle {% if active_tab2 == 'info' %}active{% endif %}" data-bs-toggle="dropdown" href="#" role="button" aria-expanded="false">Council Info</a>
-              <ul class="dropdown-menu dropdown-menu-dark">
-                <li><a class="dropdown-item {% if active_tab == 'agenda' %}active{% endif %}" href="/agenda/">Agenda</a></li>
-                <!-- <li><a class="dropdown-item {% if active_tab == 'nodes' %}active{% endif %}" href="/nodes/">Nodes</a></li>-->
-                <li><a class="dropdown-item {% if active_tab == 'socials' %}active{% endif %}" href="/socials/">Social Events</a></li>
-                <li><a class="dropdown-item {% if active_tab == 'reports' %}active{% endif %}" href="/reports/">Reports</a></li>
-                <li><a class="dropdown-item {% if active_tab == 'policies' %}active{% endif %}" href="/policies/">Policies</a></li>
-                <li><a class="dropdown-item {% if active_tab == 'fbgroup' %}active{% endif %}" href="/fbgroup/">Facebook Group</a></li>
-              </ul>
+            <li class="nav-item">
+              <a class="nav-link {% if active_tab == 'agenda' %}active{% endif %}" href="/agenda/">Agenda</a>
             </li>
 
             <li class="nav-item">
@@ -58,7 +50,7 @@
             </li>
 
             {% if current_delegate %}
-              {% if current_delegate.superadmin %}
+              {% if current_delegate.is_site_admin %}
                 <li class="nav-item">
                   <a class="nav-link {% if active_tab == 'app_admin' %}active{% endif %}"  href="/app_admin/">Admin Centre</a>
                 </li>

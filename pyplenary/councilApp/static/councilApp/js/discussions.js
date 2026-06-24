@@ -88,7 +88,8 @@ function roleBadge(delegate) {
 		viewer: 'bg-secondary',
 		delegate: 'bg-info text-dark',
 		representative: 'bg-primary',
-		moderator: 'bg-success'
+		moderator: 'bg-success',
+		admin: 'bg-danger'
 	};
 	badge.className = 'badge ' + (colors[delegate.account_role] || 'bg-secondary');
 	badge.innerText = delegate.account_role_label;
@@ -117,9 +118,9 @@ function delegateCanSpeakInDiscussion(delegate, discussion) {
 		return false;
 	}
 	if (discussion.discussion_type === 'formal') {
-		return delegate.account_role === 'representative';
+		return delegate.account_role === 'representative' || delegate.account_role === 'admin';
 	}
-	return ['delegate', 'representative', 'moderator'].includes(delegate.account_role);
+	return ['delegate', 'representative', 'moderator', 'admin'].includes(delegate.account_role);
 }
 
 function renderDiscussions(discussions) {

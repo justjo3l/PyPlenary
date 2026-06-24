@@ -121,23 +121,9 @@ def generateSpeakerListCSV(request):
     agendaIO = StringIO()
     writer = csv.writer(agendaIO)
     writer.writerow(['Day', 'Time', 'Item'])
-    cached_agenda = fetch_yaml_from_uri(settings.PYPLENARY_AGENDA_URI, "agenda")
-    for day, items in cached_agenda.items():
-        for item in items:
-            writer.writerow([day, 
-                item['time'] if 'time' in item else '', 
-                item['title'] if 'title' in item else ''])
-
-    reportsIO = StringIO()
-    writer = csv.writer(reportsIO)
-    writer.writerow(['Group', 'Position', 'Name', 'Report link'])
-    cached_reports = fetch_yaml_from_uri(settings.PYPLENARY_REPORTS_URI, "reports")
-    for group in cached_reports:
-        for report in group['reports']:
-            writer.writerow([group['name'] if 'name' in group else '', 
-                report['position'] if 'position' in report else '', 
-                report['name'] if 'name' in report else '', 
-                report['URL'] if 'URL' in report else ''])
+    for day in AgendaDay.objects.prefetch_related('items').all():
+        for item in day.items.all():
+            writer.writerow([day.title, item.time, item.title])
 
     response = HttpResponse(content_type='application/zip')
     response['Content-Disposition'] = 'attachment; filename=councilAppData.zip'
@@ -149,7 +135,6 @@ def generateSpeakerListCSV(request):
     z.writestr("discussionQuestions.csv", discussionQuestionsIO.getvalue())
     z.writestr("polls.csv", pollsIO.getvalue())
     z.writestr("agenda.csv", agendaIO.getvalue())
-    z.writestr("reports.csv", reportsIO.getvalue())
     z.close()
 
     return response
@@ -175,8 +160,9 @@ def addUserFromJSON(account, forceResend = False):
             return toReturn
         
         account_role = (account.get('Account role') or account.get('Access role') or Delegate.ROLE_DELEGATE).strip().lower()
-        valid_roles = dict(Delegate.ACCOUNT_ROLE_CHOICES)
-        valid_roles_by_label = {label.lower(): key for key, label in Delegate.ACCOUNT_ROLE_CHOICES}
+        public_role_choices = [choice for choice in Delegate.ACCOUNT_ROLE_CHOICES if choice[0] != Delegate.ROLE_ADMIN]
+        valid_roles = dict(public_role_choices)
+        valid_roles_by_label = {label.lower(): key for key, label in public_role_choices}
         if account_role in valid_roles_by_label:
             account_role = valid_roles_by_label[account_role]
         if account_role not in valid_roles:

@@ -23,11 +23,13 @@ class Delegate(models.Model):
     ROLE_DELEGATE = 'delegate'
     ROLE_REPRESENTATIVE = 'representative'
     ROLE_MODERATOR = 'moderator'
+    ROLE_ADMIN = 'admin'
     ACCOUNT_ROLE_CHOICES = [
         (ROLE_VIEWER, 'Viewer'),
         (ROLE_DELEGATE, 'Delegate'),
         (ROLE_REPRESENTATIVE, 'Representative'),
         (ROLE_MODERATOR, 'Moderator'),
+        (ROLE_ADMIN, 'Admin'),
     ]
 
     id = models.AutoField(primary_key=True)
@@ -56,15 +58,19 @@ class Delegate(models.Model):
 
     @property
     def can_create_discussions(self):
-        return self.superadmin or self.account_role == self.ROLE_MODERATOR
+        return self.superadmin or self.account_role in [self.ROLE_MODERATOR, self.ROLE_ADMIN]
 
     @property
     def can_speak_in_informal_discussions(self):
-        return self.account_role in [self.ROLE_DELEGATE, self.ROLE_REPRESENTATIVE, self.ROLE_MODERATOR]
+        return self.account_role in [self.ROLE_DELEGATE, self.ROLE_REPRESENTATIVE, self.ROLE_MODERATOR, self.ROLE_ADMIN]
 
     @property
     def can_speak_in_formal_discussions(self):
-        return self.account_role == self.ROLE_REPRESENTATIVE
+        return self.account_role in [self.ROLE_REPRESENTATIVE, self.ROLE_ADMIN]
+
+    @property
+    def is_site_admin(self):
+        return self.superadmin or self.account_role == self.ROLE_ADMIN
 
     def to_json(self):
         return {
@@ -170,6 +176,52 @@ class PendingRego(models.Model):
         db_table = 'PendingRego'
 
 
+class AdminAccessRequest(models.Model):
+    delegate = models.OneToOneField(Delegate, models.CASCADE, related_name='admin_access_request')
+    requested_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'AdminAccessRequest'
+
+    def __str__(self):
+        return f'{self.delegate.name} requested admin access'
+
+
+class AgendaDay(models.Model):
+    title = models.CharField(max_length=120)
+    date = models.CharField(max_length=80, blank=True)
+    order = models.IntegerField(default=0)
+
+    class Meta:
+        db_table = 'AgendaDay'
+        ordering = ['order', 'id']
+
+    def __str__(self):
+        return self.title
+
+
+class AgendaItem(models.Model):
+    day = models.ForeignKey(AgendaDay, models.CASCADE, related_name='items')
+    time = models.CharField(max_length=40, blank=True)
+    title = models.CharField(max_length=200)
+    badge = models.CharField(max_length=80, blank=True)
+    color = models.CharField(max_length=40, blank=True)
+    category = models.CharField(max_length=120, blank=True)
+    content = models.TextField(blank=True)
+    links = models.TextField(blank=True, help_text='One markdown link or URL per line.')
+    order = models.IntegerField(default=0)
+
+    class Meta:
+        db_table = 'AgendaItem'
+        ordering = ['order', 'id']
+
+    def __str__(self):
+        return self.title
+
+    def links_list(self):
+        return [line.strip() for line in self.links.splitlines() if line.strip()]
+
+
 class Speaker(models.Model):
     """Legacy single-room speaker queue entry."""
     id = models.AutoField(primary_key=True)
@@ -228,12 +280,12 @@ class Discussion(models.Model):
     def user_can_moderate(self, delegate):
         return delegate is not None and (
             self.moderator_id == delegate.id
-            or delegate.superadmin
+            or delegate.is_site_admin
             or any(moderator.id == delegate.id for moderator in self.additional_moderators.all())
         )
 
     def user_can_manage_moderators(self, delegate):
-        return delegate is not None and (self.moderator_id == delegate.id or delegate.superadmin)
+        return delegate is not None and (self.moderator_id == delegate.id or delegate.is_site_admin)
 
     def status_label(self):
         if self.archived:

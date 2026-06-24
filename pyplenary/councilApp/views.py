@@ -34,6 +34,11 @@ def current_delegate(request):
     return getattr(request.user, 'delegate', None) if request.user.is_authenticated else None
 
 
+def current_user_is_site_admin(request):
+    delegate = current_delegate(request)
+    return delegate is not None and delegate.is_site_admin
+
+
 def broadcast_discussions():
     async_to_sync(channel_layer.group_send)(
         'discussions',
@@ -607,7 +612,7 @@ def ajaxSpeakerAdd(request):
 @login_required
 @require_POST
 def ajaxSpeakerRemove(request):
-    if not request.user.delegate.superadmin:
+    if not request.user.delegate.is_site_admin:
         return HttpResponseForbidden()
     
     Speaker.objects.filter(delegate__id=request.POST.get('delegateId')).delete()
@@ -619,7 +624,7 @@ def ajaxSpeakerRemove(request):
 @login_required
 @require_POST
 def ajaxSpeakersReorder(request):
-    if not request.user.delegate.superadmin:
+    if not request.user.delegate.is_site_admin:
         return HttpResponseForbidden()
     
     order = [int(x) for x in request.POST.get('order', '').split(',') if x]
@@ -634,7 +639,7 @@ def ajaxSpeakersReorder(request):
 @login_required
 @require_POST
 def ajaxChangeSpeakingMode(request):
-    if not request.user.delegate.superadmin:
+    if not request.user.delegate.is_site_admin:
         return HttpResponseForbidden()
     
     mode = request.POST.get('mode', 'standard')
@@ -647,7 +652,7 @@ def ajaxChangeSpeakingMode(request):
 @login_required
 @require_POST
 def ajaxSpeakersClear(request):
-    if not request.user.delegate.superadmin:
+    if not request.user.delegate.is_site_admin:
         return HttpResponseForbidden()
     
     Speaker.objects.all().delete()
@@ -738,7 +743,7 @@ def proxyResign(request):
 def poll(request):
     allPolls = sorted(Poll.objects.all(), key=lambda x:-x.id)
     delegate = request.user.delegate if request.user.is_authenticated else None
-    superadmin = delegate.superadmin if delegate is not None else False
+    superadmin = delegate.is_site_admin if delegate is not None else False
     rep = delegate.rep if delegate is not None else False
     activePolls = [i for i in allPolls if i.active and eligibleToVote(delegate, i)]
     return render(request, 'councilApp/poll.html', {'allPolls':allPolls, 'superadmin':superadmin, 'rep':rep, 'activePolls':activePolls,
@@ -746,7 +751,7 @@ def poll(request):
 
 @login_required
 def createPoll(request):
-    if not request.user.delegate.superadmin:
+    if not request.user.delegate.is_site_admin:
         raise Http404()
 
     if request.method == 'POST':
@@ -770,7 +775,7 @@ def createPoll(request):
 @login_required
 @require_POST
 def closePoll(request, pollId):
-    if not request.user.delegate.superadmin:
+    if not request.user.delegate.is_site_admin:
         raise Http404()
     try:
         activePoll = Poll.objects.filter(id = pollId, active=True)[0]
@@ -813,7 +818,7 @@ def pollInfo(request, pollId):
 
     allVotes = Vote.objects.filter(poll=poll)
     pollResults = calculateResults(poll)
-    superadmin = True if request.user.is_authenticated and request.user.delegate.superadmin else False
+    superadmin = True if request.user.is_authenticated and request.user.delegate.is_site_admin else False
 
     yetToVote = []
     if poll.repsOnly:
@@ -926,72 +931,62 @@ def ajaxSubmitVotes(request):
     return JsonResponse({'raise404':False})
 
 def agenda(request):
-    # Check cache for agenda
-    cache1 = caches['default']
-    cached_agenda = cache1.get('agenda')
-    if cached_agenda is None or request.GET.get('refresh', '0') == '1':
-        cached_agenda = fetch_yaml_from_uri(settings.PYPLENARY_AGENDA_URI, "agenda")
-        cache1.set('agenda', cached_agenda, timeout=None)
+    delegate = current_delegate(request)
+    can_edit = delegate is not None and delegate.is_site_admin
 
-    agendaDates = [(key, cached_agenda[key]['date']) for key in cached_agenda.keys()]
-    try:
-        toDisp = 0
-        timeNow = datetime.datetime.now()
-        formatStr = '%d/%m/%Y'
-        for i in agendaDates:
-            agendaTime = datetime.datetime.strptime(i[1], formatStr)
-            if (timeNow - agendaTime).total_seconds() > 0:
-                toDisp += 1
-        if toDisp == 0:
-            toDisp += 1
-    except:
-        toDisp = 1
+    if request.method == 'POST':
+        if not can_edit:
+            raise Http404()
+        action = request.POST.get('action')
+        if action == 'create_day':
+            AgendaDay.objects.create(
+                title=request.POST.get('title', '').strip() or 'New Day',
+                date=request.POST.get('date', '').strip(),
+                order=int(request.POST.get('order') or 0),
+            )
+        elif action == 'update_day':
+            day = AgendaDay.objects.get(id=request.POST.get('day_id'))
+            day.title = request.POST.get('title', '').strip() or day.title
+            day.date = request.POST.get('date', '').strip()
+            day.order = int(request.POST.get('order') or 0)
+            day.save()
+        elif action == 'delete_day':
+            AgendaDay.objects.filter(id=request.POST.get('day_id')).delete()
+        elif action == 'create_item':
+            day = AgendaDay.objects.get(id=request.POST.get('day_id'))
+            AgendaItem.objects.create(
+                day=day,
+                time=request.POST.get('time', '').strip(),
+                title=request.POST.get('title', '').strip() or 'New Item',
+                badge=request.POST.get('badge', '').strip(),
+                color=request.POST.get('color', '').strip(),
+                category=request.POST.get('category', '').strip(),
+                content=request.POST.get('content', '').strip(),
+                links=request.POST.get('links', '').strip(),
+                order=int(request.POST.get('order') or 0),
+            )
+        elif action == 'update_item':
+            item = AgendaItem.objects.get(id=request.POST.get('item_id'))
+            item.time = request.POST.get('time', '').strip()
+            item.title = request.POST.get('title', '').strip() or item.title
+            item.badge = request.POST.get('badge', '').strip()
+            item.color = request.POST.get('color', '').strip()
+            item.category = request.POST.get('category', '').strip()
+            item.content = request.POST.get('content', '').strip()
+            item.links = request.POST.get('links', '').strip()
+            item.order = int(request.POST.get('order') or 0)
+            item.save()
+        elif action == 'delete_item':
+            AgendaItem.objects.filter(id=request.POST.get('item_id')).delete()
+        return redirect('/agenda/')
 
-    print(agendaDates)
-
-    return render(request, 'councilApp/councilInfo/agenda.html', {'active_tab':'agenda', 'active_tab2': 'info', 'agenda':cached_agenda, 'toDisp':toDisp})
-
-def reports(request):
-    cache1 = caches['default']
-    cached_reports = cache1.get('reports')
-    if cached_reports is None or request.GET.get('refresh', '0') == '1':
-        cached_reports = fetch_yaml_from_uri(settings.PYPLENARY_REPORTS_URI, "reports")
-        cache1.set('reports', cached_reports, timeout=None)
-
-    return render(request, 'councilApp/councilInfo/reports.html', {'active_tab':'reports', 'active_tab2': 'info', 'allGroups':cached_reports})
-
-def policies(request):
-    cache1 = caches['default']
-    cached_policies = cache1.get('policies')
-    if cached_policies is None or request.GET.get('refresh', '0') == '1':
-        cached_policies = fetch_yaml_from_uri(settings.PYPLENARY_POLICIES_URI, "policies")
-        cache1.set('policies', cached_policies, timeout=None)
-
-    return render(request, 'councilApp/councilInfo/policies.html', {'active_tab':'policies', 'active_tab2': 'info', 'allPolicies':cached_policies})
-
-def socials(request):
-    cache1 = caches['default']
-    cached_socials = cache1.get('socials')
-    if cached_socials is None or request.GET.get('refresh', '0') == '1':
-        cached_socials = fetch_yaml_from_uri(settings.PYPLENARY_SOCIALS_URI, "socials")
-        cache1.set('socials', cached_socials, timeout=None)
-
-    return render(request, 'councilApp/councilInfo/socials.html', {'active_tab':'socials', 'active_tab2': 'info', 'allCities':cached_socials})
-
-def nodes(request):
-    cache1 = caches['default']
-    cached_nodes = cache1.get('nodes')
-    if cached_nodes is None or request.GET.get('refresh', '0') == '1':
-        cached_nodes = fetch_yaml_from_uri(settings.PYPLENARY_NODES_URI, "nodes")
-        cache1.set('nodes', cached_nodes, timeout=None)
-
-    return render(request, 'councilApp/councilInfo/nodes.html', {'active_tab':'nodes', 'active_tab2': 'info', 'allNodes':cached_nodes})
-
-def fbgroup(request):
-    try:
-        return redirect(settings.PYPLENARY_FACEBOOK_GROUP)
-    except:
-        raise Http404()
+    days = AgendaDay.objects.prefetch_related('items').all()
+    return render(request, 'councilApp/councilInfo/agenda.html', {
+        'active_tab': 'agenda',
+        'days': days,
+        'can_edit_agenda': can_edit,
+        'show_day_tabs': days.count() > 1,
+    })
 
 def loginCustom(request):
     if request.user.is_authenticated:
@@ -1216,6 +1211,8 @@ def profile(request):
 
     done = False
     emailChanged = False
+    admin_request_error = False
+    admin_request_done = False
 
     changeDetailForm = ProfileForm({
         'name': delegate.name,
@@ -1226,33 +1223,71 @@ def profile(request):
         'firstTime': delegate.first_time})
 
     if request.method == 'POST':
-        changeDetailForm = ProfileForm(request.POST)
+        if request.POST.get('action') == 'request_admin':
+            if delegate.is_site_admin or hasattr(delegate, 'admin_access_request'):
+                admin_request_done = True
+            elif request.POST.get('admin_code') != 'adminaccesspls':
+                admin_request_error = True
+            else:
+                body = (
+                    f'{delegate.name} is requesting admin access.\n\n'
+                    f'Email: {delegate.email}\n'
+                    f'Access role: {delegate.get_account_role_display()}\n'
+                    f'Position: {delegate.role}\n'
+                    f'Institution: {delegate.institution}\n'
+                    f'Pronouns: {delegate.pronouns or "-"}\n'
+                    f'First time attendee: {delegate.first_time}\n'
+                )
+                try:
+                    send_mail(
+                        'PyPlenary admin access request',
+                        body,
+                        settings.DEFAULT_FROM_EMAIL,
+                        ['amsaassistant@gmail.com'],
+                        fail_silently=False,
+                    )
+                    AdminAccessRequest.objects.create(delegate=delegate)
+                    admin_request_done = True
+                except Exception:
+                    logger.exception("Failed to send admin access request email for %s", delegate.email)
+                    admin_request_error = True
+        else:
+            changeDetailForm = ProfileForm(request.POST)
 
-        if changeDetailForm.is_valid():
-            email = changeDetailForm.cleaned_data.get('email').lower()
+            if changeDetailForm.is_valid():
+                email = changeDetailForm.cleaned_data.get('email').lower()
 
-            if email != user.username:
-                if User.objects.filter(username=email):
-                    return render(request, 'councilApp/profile.html', {'changeDetailForm':changeDetailForm, 'error':1, 'active_tab':'profile'})
-                [delegate.email, user.username, user.email] = [email, email, email]
-                emailChanged = True
+                if email != user.username:
+                    if User.objects.filter(username=email):
+                        return render(request, 'councilApp/profile.html', {'changeDetailForm':changeDetailForm, 'error':1, 'active_tab':'profile'})
+                    [delegate.email, user.username, user.email] = [email, email, email]
+                    emailChanged = True
 
-            [delegate.email, delegate.name, delegate.institution, delegate.role, delegate.pronouns, delegate.first_time] = [
-                email,
-                changeDetailForm.cleaned_data.get('name'),
-                changeDetailForm.cleaned_data.get('institution'),
-                changeDetailForm.cleaned_data.get('role'),
-                changeDetailForm.cleaned_data.get('pronouns'),
-                changeDetailForm.cleaned_data.get('firstTime'),]
+                [delegate.email, delegate.name, delegate.institution, delegate.role, delegate.pronouns, delegate.first_time] = [
+                    email,
+                    changeDetailForm.cleaned_data.get('name'),
+                    changeDetailForm.cleaned_data.get('institution'),
+                    changeDetailForm.cleaned_data.get('role'),
+                    changeDetailForm.cleaned_data.get('pronouns'),
+                    changeDetailForm.cleaned_data.get('firstTime'),]
 
-            delegate.role = delegate.role if delegate.role else 'Delegate'
+                delegate.role = delegate.role if delegate.role else 'Delegate'
 
-            delegate.save()
-            user.save()
+                delegate.save()
+                user.save()
 
-            done = True
+                done = True
 
-    return render(request, 'councilApp/profile.html', {'changeDetailForm':changeDetailForm, 'emailChanged': emailChanged, 'done':done, 'error':0, 'active_tab':'profile'})
+    return render(request, 'councilApp/profile.html', {
+        'changeDetailForm': changeDetailForm,
+        'emailChanged': emailChanged,
+        'done': done,
+        'error': 0,
+        'active_tab': 'profile',
+        'admin_request_error': admin_request_error,
+        'admin_request_done': admin_request_done,
+        'admin_request_exists': hasattr(delegate, 'admin_access_request'),
+    })
 
 @login_required
 def passwordResetLoggedIn(request):
@@ -1273,20 +1308,20 @@ def loaderio_token(request):
 @login_required
 @ensure_csrf_cookie
 def appAdmin(request):
-    if request.user.delegate.superadmin:
+    if request.user.delegate.is_site_admin:
         return render(request, 'councilApp/adminToolTemplates/app_admin.html', {'active_tab':'app_admin'})
     else:
         raise Http404()
 
 @login_required
 def appAdminDownloadData(request):
-    if not request.user.delegate.superadmin:
+    if not request.user.delegate.is_site_admin:
         raise Http404()
     return generateSpeakerListCSV(request)
 
 @login_required
 def appAdminAddUsersTemplate(request):
-    if not request.user.delegate.superadmin:
+    if not request.user.delegate.is_site_admin:
         raise Http404()
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="add_user_template.csv"'
@@ -1298,14 +1333,14 @@ def appAdminAddUsersTemplate(request):
 
 @login_required
 def appAdminAddUsersValidInstitutions(request):
-    if not request.user.delegate.superadmin:
+    if not request.user.delegate.is_site_admin:
         raise Http404()
     institutions = sorted(Institution.objects.all(), key = lambda x:x.name)
     return render(request, 'councilApp/adminToolTemplates/valid_institutions.html', {'active_tab':'app_admin', 'institutions':institutions})
 
 @login_required
 def appAdminAddUsersValidInstitutionsDownload(request):
-    if not request.user.delegate.superadmin:
+    if not request.user.delegate.is_site_admin:
         raise Http404()
     institutions = sorted(Institution.objects.all(), key = lambda x:x.name)
     response = HttpResponse('\n'.join([f'{i.name}\n{i.shortName}' for i in institutions]), content_type='text/plain')
@@ -1320,7 +1355,7 @@ def appAdminAddUsers(request):
 @login_required
 @require_POST
 def ajaxAddOneUser(request):
-    if not request.user.delegate.superadmin:
+    if not request.user.delegate.is_site_admin:
         raise Http404()
     try:
         userInfo = request.POST.get('userInfo')
@@ -1335,7 +1370,7 @@ def ajaxAddOneUser(request):
 
 @login_required
 def appAdminAssignReps(request):
-    if not request.user.delegate.superadmin:
+    if not request.user.delegate.is_site_admin:
         raise Http404()
     institutions = sorted(Institution.objects.all(), key = lambda x:x.name)
     toPass = []
@@ -1353,7 +1388,7 @@ def appAdminAssignReps(request):
 @login_required
 @ensure_csrf_cookie
 def appAdminAssignRepById(request, instId):
-    if not request.user.delegate.superadmin:
+    if not request.user.delegate.is_site_admin:
         raise Http404()
     try:
         inst = Institution.objects.get(id=instId)
@@ -1373,7 +1408,7 @@ def appAdminAssignRepById(request, instId):
 @login_required
 @require_POST
 def ajaxAssignRep(request):
-    if not request.user.delegate.superadmin:
+    if not request.user.delegate.is_site_admin:
         raise Http404()
     try:
         delegateId = request.POST.get('delegateId', None)
@@ -1382,11 +1417,12 @@ def ajaxAssignRep(request):
         return JsonResponse({'raise404':True, 'newRep':None})
     for otherDelegate in Delegate.objects.filter(institution=delegate.institution):
         otherDelegate.rep = False
-        if otherDelegate.account_role == Delegate.ROLE_REPRESENTATIVE:
+        if otherDelegate.account_role == Delegate.ROLE_REPRESENTATIVE and otherDelegate.id != delegate.id:
             otherDelegate.account_role = Delegate.ROLE_DELEGATE
         otherDelegate.save()
     delegate.rep = True
-    delegate.account_role = Delegate.ROLE_REPRESENTATIVE
+    if delegate.account_role != Delegate.ROLE_ADMIN:
+        delegate.account_role = Delegate.ROLE_REPRESENTATIVE
     delegate.save()
 
     data = {'raise404':False, 'newRep':[delegate.name, delegate.institution.name]}
@@ -1395,7 +1431,7 @@ def ajaxAssignRep(request):
 @login_required
 @require_POST
 def ajaxResetAndWipe(request):
-    if not request.user.delegate.superadmin:
+    if not request.user.delegate.is_site_admin:
         raise Http404()
     try:
         confirmation = request.POST.get('confirmation')
@@ -1410,6 +1446,8 @@ def ajaxResetAndWipe(request):
         Vote.objects.all().delete()
         Proxy.objects.all().delete()
         Poll.objects.all().delete()
+        AgendaDay.objects.all().delete()
+        AdminAccessRequest.objects.all().delete()
         Discussion.objects.all().delete()
         Speaker.objects.all().delete()
         ResetToken.objects.all().delete()

@@ -38,7 +38,6 @@ Important variables:
 - `PGHOST`, `PGDATABASE`, `PGUSER`, `DBPASS`, `PGPORT`
 - `REDIS_URL` for production WebSocket fanout
 - `EMAIL_PROVIDER`, `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, `DEFAULT_FROM_EMAIL` for email delivery
-- `PYPLENARY_AGENDA_URI`, `PYPLENARY_REPORTS_URI`, `PYPLENARY_POLICIES_URI`, `PYPLENARY_SOCIALS_URI`, `PYPLENARY_NODES_URI`
 - `PYPLENARY_ADMIN_NAME`, `PYPLENARY_ADMIN_EMAIL`, `PYPLENARY_SUPPORT_EMAIL`
 
 ## Email Delivery
@@ -101,6 +100,7 @@ Application state is stored in the Django database:
 - institutions and delegates
 - polls and votes
 - proxies
+- agenda days and agenda items
 - active discussions, discussion participants, and speaker queues
 - registration and password reset tokens
 
@@ -129,28 +129,7 @@ How to configure institutions:
 - Or add/update them through a data migration/fixture if you want source-controlled defaults.
 - Or insert them manually in the database for a one-off deployment.
 
-Council information pages load YAML from configured remote URIs and cache the parsed content. Redis is used when `REDIS_URL` is configured; otherwise local memory cache is used.
-
-Configured YAML sources:
-
-- `/agenda/` loads `PYPLENARY_AGENDA_URI`
-- `/reports/` loads `PYPLENARY_REPORTS_URI`
-- `/policies/` loads `PYPLENARY_POLICIES_URI`
-- `/socials/` loads `PYPLENARY_SOCIALS_URI`
-- `/nodes/` loads `PYPLENARY_NODES_URI`
-- `/fbgroup/` redirects to `PYPLENARY_FACEBOOK_GROUP`
-
-Each URI should point to raw YAML text over HTTP(S), for example a raw GitHub file, a public object-storage file, or another endpoint that returns YAML directly. Add `?refresh=1` to a page URL to force the app to reload that source, for example `/agenda/?refresh=1`.
-
-The templates expect these broad structures:
-
-- Agenda: a mapping of day keys to objects with a `date` and agenda item entries.
-- Reports: a list of groups, each with `name` and a `reports` list.
-- Policies: YAML consumed by `templates/councilApp/councilInfo/policies.html`.
-- Socials: YAML consumed by `templates/councilApp/councilInfo/socials.html`.
-- Nodes: YAML consumed by `templates/councilApp/councilInfo/nodes.html`.
-
-Use the existing templates as the source of truth for exact optional fields.
+Agenda content is stored in the database. Site admins can create and edit agenda days and items directly at `/agenda/`. Public users see the saved agenda; if there is only one agenda day, the day selector is hidden.
 
 ## Authentication and Accounts
 

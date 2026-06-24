@@ -23,15 +23,34 @@
       </div>
     {% endif %}
   {% endif %}
+  {% if admin_request_error %}
+    <div class="alert alert-danger" role="alert">Admin access request could not be submitted. Check the code and try again.</div>
+  {% endif %}
+  {% if admin_request_done %}
+    <div class="alert alert-success" role="alert">Admin access request submitted.</div>
+  {% endif %}
   <div>
     <form method="post">
       <div class="form">
         {% csrf_token %}
+        <input type="hidden" name="action" value="update_profile">
         {{ changeDetailForm|crispy }}  
         <button type="submit" class="btn btn-success btn-block">Update</button>
       </div>
     </form>
   </div>
+  {% if not current_delegate.is_site_admin and not admin_request_exists %}
+    <hr>
+    <h4>Request Admin Access</h4>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="request_admin">
+      <div class="mb-2">
+        <input type="password" name="admin_code" class="form-control" placeholder="Admin access code" required>
+      </div>
+      <button type="submit" class="btn btn-outline-primary">Request Admin Access</button>
+    </form>
+  {% endif %}
   <script>
     $( ".form-group" ).after( "<br>" );
   </script>

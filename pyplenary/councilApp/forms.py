@@ -31,7 +31,7 @@ class RegoForm(forms.Form):
         queryset=Institution.objects.all(), required=True)
     account_role = forms.ChoiceField(
         label='Access role',
-        choices=Delegate.ACCOUNT_ROLE_CHOICES,
+        choices=[choice for choice in Delegate.ACCOUNT_ROLE_CHOICES if choice[0] != Delegate.ROLE_ADMIN],
         initial=Delegate.ROLE_VIEWER,
         help_text='Viewers cannot speak. Delegates can speak in informal discussions. Representatives can speak in formal and informal discussions. Moderators can create and run discussions.',
         required=True,

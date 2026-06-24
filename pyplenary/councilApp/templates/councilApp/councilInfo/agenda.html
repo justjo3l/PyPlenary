@@ -2,79 +2,130 @@
 {% load timeline %}
 {% load markdown %}
 
-{% comment %}
-    Copyright © 2021-2026  Lee Yingtong Li (RunasSudo), Allen Gu
-    Modernized and maintained © 2026 Joel Jose
-
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU Affero General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU Affero General Public License for more details.
-
-    You should have received a copy of the GNU Affero General Public License
-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
-{% endcomment %}
-
 {% block title %}Agenda - Council Webapp{% endblock %}
 
 {% block content %}
-  <div style="max-width: 600px; margin: 0 auto;">
-    <h2 class="mb-3">Agenda</h2>
+  <div style="max-width: 760px; margin: 0 auto;">
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+      <h2 class="mb-0" style="flex-grow:1">Agenda</h2>
+      {% if can_edit_agenda %}
+        <button class="btn btn-success btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#agendaEditor">Edit Agenda</button>
+      {% endif %}
+    </div>
 
     <p>All times are shown in {{ PYPLENARY_TZ }}.</p>
 
-    <ul class="nav nav-tabs">
-      {% for day in agenda.keys %}
-        
-        <li class="nav-item">
-          <button class="nav-link{% if forloop.counter == toDisp %} active{% endif %}" data-bs-toggle="tab" data-bs-target="#{{ day|slugify }}" aria-controls="{{ day|slugify }}" aria-selected="true">{{ day }} </button>
-        </li>
-      {% endfor %}
-    </ul>
+    {% if can_edit_agenda %}
+      <div class="collapse mb-4" id="agendaEditor">
+        <div class="border rounded p-3">
+          <h4>Create Day</h4>
+          <form method="post" class="row g-2 mb-4">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="create_day">
+            <div class="col-12 col-md-5"><input class="form-control" name="title" placeholder="Day title"></div>
+            <div class="col-12 col-md-4"><input class="form-control" name="date" placeholder="Date text"></div>
+            <div class="col-6 col-md-2"><input class="form-control" type="number" name="order" placeholder="Order"></div>
+            <div class="col-6 col-md-1"><button class="btn btn-success w-100" type="submit">Add</button></div>
+          </form>
 
-    <div class="tab-content">
-      {% for day, items in agenda.items %}
-        <div class="tab-pane fade{% if forloop.counter == toDisp %} show active{% endif %}" id="{{ day|slugify }}">
-          <div class="timeline mt-4">
-            {% for item in items.schedule %}
-              <div>
-                {% if item.color %}<span class="badge badge-dot bg-{{ item.color }}"><i></i></span>{% endif %}
-                <div class="content">
-                  <div class="h5">{{ item.title }}{% if item.badge %} <span class="badge bg-{{ item.color }}">{{ item.badge }}</span>{% endif %}</div>
-                  {% if item.location %}<p class="location small text-muted"><i class="bi bi-geo-alt"></i> {{ item.location|markdown|nopar }}</p>{% endif %}
-                  {% for link in item.links %}<p class="small text-muted"><i class="bi bi-link-45deg"></i> {{ link|markdown|nopar }}</p>{% endfor %}
-                  {% if item.content %}{{ item.content|markdown }}{% endif %}
+          {% for day in days %}
+            <div class="border-top pt-3 mt-3">
+              <form method="post" class="row g-2 align-items-end mb-3">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="update_day">
+                <input type="hidden" name="day_id" value="{{ day.id }}">
+                <div class="col-12 col-md-4"><label class="form-label">Day</label><input class="form-control" name="title" value="{{ day.title }}"></div>
+                <div class="col-12 col-md-3"><label class="form-label">Date</label><input class="form-control" name="date" value="{{ day.date }}"></div>
+                <div class="col-6 col-md-2"><label class="form-label">Order</label><input class="form-control" type="number" name="order" value="{{ day.order }}"></div>
+                <div class="col-6 col-md-3 d-flex gap-2">
+                  <button class="btn btn-primary" type="submit">Save Day</button>
+                  <button class="btn btn-outline-danger" type="submit" name="action" value="delete_day">Delete</button>
                 </div>
-                {% if item.time %}
-                  <span class="time text-muted">
-                    {{ item.time|timeline_time }}
-                  </span>
-                {% endif %}
-              </div>
-            {% endfor %}
-          </div>
+              </form>
+
+              {% for item in day.items.all %}
+                <form method="post" class="border rounded p-2 mb-2">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="update_item">
+                  <input type="hidden" name="item_id" value="{{ item.id }}">
+                  <div class="row g-2">
+                    <div class="col-6 col-md-2"><input class="form-control" name="time" value="{{ item.time }}" placeholder="Time"></div>
+                    <div class="col-12 col-md-5"><input class="form-control" name="title" value="{{ item.title }}" placeholder="Title"></div>
+                    <div class="col-6 col-md-2"><input class="form-control" name="color" value="{{ item.color }}" placeholder="Color"></div>
+                    <div class="col-6 col-md-2"><input class="form-control" type="number" name="order" value="{{ item.order }}" placeholder="Order"></div>
+                    <div class="col-12 col-md-1"><button class="btn btn-primary w-100" type="submit">Save</button></div>
+                    <div class="col-6 col-md-3"><input class="form-control" name="badge" value="{{ item.badge }}" placeholder="Badge"></div>
+                    <div class="col-6 col-md-3"><input class="form-control" name="category" value="{{ item.category }}" placeholder="Category"></div>
+                    <div class="col-12 col-md-6"><textarea class="form-control" name="links" rows="2" placeholder="Links, one per line">{{ item.links }}</textarea></div>
+                    <div class="col-12"><textarea class="form-control" name="content" rows="3" placeholder="Content">{{ item.content }}</textarea></div>
+                    <div class="col-12"><button class="btn btn-outline-danger btn-sm" type="submit" name="action" value="delete_item">Delete Item</button></div>
+                  </div>
+                </form>
+              {% endfor %}
+
+              <form method="post" class="border rounded p-2 bg-light">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="create_item">
+                <input type="hidden" name="day_id" value="{{ day.id }}">
+                <div class="row g-2">
+                  <div class="col-6 col-md-2"><input class="form-control" name="time" placeholder="Time"></div>
+                  <div class="col-12 col-md-5"><input class="form-control" name="title" placeholder="Title"></div>
+                  <div class="col-6 col-md-2"><input class="form-control" name="color" placeholder="Color"></div>
+                  <div class="col-6 col-md-2"><input class="form-control" type="number" name="order" placeholder="Order"></div>
+                  <div class="col-12 col-md-1"><button class="btn btn-success w-100" type="submit">Add</button></div>
+                  <div class="col-6 col-md-3"><input class="form-control" name="badge" placeholder="Badge"></div>
+                  <div class="col-6 col-md-3"><input class="form-control" name="category" placeholder="Category"></div>
+                  <div class="col-12 col-md-6"><input class="form-control" name="links" placeholder="Links, one per line"></div>
+                  <div class="col-12"><textarea class="form-control" name="content" rows="3" placeholder="Content"></textarea></div>
+                </div>
+              </form>
+            </div>
+          {% endfor %}
         </div>
-      {% endfor %}
-    </div>
+      </div>
+    {% endif %}
+
+    {% if not days %}
+      <div class="alert alert-secondary">No agenda has been published yet.</div>
+    {% else %}
+      {% if show_day_tabs %}
+        <ul class="nav nav-tabs">
+          {% for day in days %}
+            <li class="nav-item">
+              <button class="nav-link{% if forloop.first %} active{% endif %}" data-bs-toggle="tab" data-bs-target="#day-{{ day.id }}">{{ day.title }}</button>
+            </li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+
+      <div class="tab-content">
+        {% for day in days %}
+          <div class="tab-pane fade{% if forloop.first %} show active{% endif %}" id="day-{{ day.id }}">
+            {% if show_day_tabs %}<h4 class="mt-4">{{ day.date }}</h4>{% else %}{% if day.date %}<h4>{{ day.date }}</h4>{% endif %}{% endif %}
+            <div class="timeline mt-4">
+              {% for item in day.items.all %}
+                <div>
+                  {% if item.color %}<span class="badge badge-dot bg-{{ item.color }}"><i></i></span>{% endif %}
+                  <div class="content">
+                    <div class="h5">
+                      {{ item.title }}
+                      {% if item.badge %}<span class="badge bg-{{ item.color|default:'secondary' }}">{{ item.badge }}</span>{% endif %}
+                      {% if item.category %}<span class="badge bg-light text-dark border">{{ item.category }}</span>{% endif %}
+                    </div>
+                    {% for link in item.links_list %}<p class="small text-muted"><i class="bi bi-link-45deg"></i> {{ link|markdown|nopar }}</p>{% endfor %}
+                    {% if item.content %}{{ item.content|markdown }}{% endif %}
+                  </div>
+                  {% if item.time %}
+                    <span class="time text-muted">{{ item.time|timeline_time }}</span>
+                  {% endif %}
+                </div>
+              {% empty %}
+                <div class="alert alert-secondary">No agenda items for this day yet.</div>
+              {% endfor %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
   </div>
-{% endblock %}
-
-{% block script %}
-  {{ block.super }}
-  <script>
-    var triggerTabList = [].slice.call(document.querySelectorAll('.nav-tabs button'));
-    triggerTabList.forEach(function(triggerEl) {
-      var tabTrigger = new bootstrap.Tab(triggerEl)
-
-      triggerEl.addEventListener('click', function (event) {
-        event.preventDefault()
-        tabTrigger.show()
-      })
-    })
-  </script>
 {% endblock %}

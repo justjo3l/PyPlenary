@@ -29,7 +29,7 @@
         {% endif %}
           <td>{{ delegate.name }}</td>
           <td>
-            <span class="badge {% if delegate.account_role == 'viewer' %}bg-secondary{% elif delegate.account_role == 'delegate' %}bg-info text-dark{% elif delegate.account_role == 'representative' %}bg-primary{% else %}bg-success{% endif %}">
+            <span class="badge {% if delegate.account_role == 'viewer' %}bg-secondary{% elif delegate.account_role == 'delegate' %}bg-info text-dark{% elif delegate.account_role == 'representative' %}bg-primary{% elif delegate.account_role == 'moderator' %}bg-success{% else %}bg-danger{% endif %}">
               {{ delegate.get_account_role_display }}
             </span>
           </td>
