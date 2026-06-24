@@ -64,6 +64,11 @@ def seconds_from_request(request, field_name, default):
     return min(900, max(15, seconds))
 
 
+def format_duration(seconds):
+    seconds = max(0, int(seconds or 0))
+    return f'{seconds // 60}:{seconds % 60:02d}'
+
+
 def discussion_moderator_options(discussion):
     return Delegate.objects.filter(account_role=Delegate.ROLE_MODERATOR).exclude(
         id__in=[discussion.moderator_id] + list(discussion.additional_moderators.values_list('id', flat=True))
@@ -77,6 +82,15 @@ def log_discussion_event(discussion, actor, event_type, message):
         event_type=event_type,
         message=message[:500],
     )
+
+
+def discussion_title_from_request(request, current_title):
+    title = (request.POST.get('title') or '').strip()
+    if not title or len(title) > 200:
+        return None
+    if title == current_title:
+        return current_title
+    return title
 
 def index(request):
     return render(request, 'councilApp/index.html', {'active_tab':'index'})
@@ -190,6 +204,39 @@ def ajaxDiscussionArchive(request):
     discussion.timer_running = False
     discussion.save()
     log_discussion_event(discussion, current_delegate(request), 'close', f'{current_delegate(request).name} closed the discussion.')
+    broadcast_discussions()
+    return JsonResponse({'raise404': False})
+
+
+@login_required
+@require_POST
+def ajaxDiscussionReopen(request):
+    discussion = discussion_or_404(request.POST.get('discussionId'), include_archived=True)
+    delegate = require_discussion_moderator(request, discussion)
+    if delegate is None:
+        return JsonResponse({'raise404': True})
+    discussion.archived = False
+    discussion.save()
+    log_discussion_event(discussion, delegate, 'reopen', f'{delegate.name} reopened the discussion.')
+    broadcast_discussions()
+    return JsonResponse({'raise404': False})
+
+
+@login_required
+@require_POST
+def ajaxDiscussionRename(request):
+    discussion = discussion_or_404(request.POST.get('discussionId'), include_archived=True)
+    delegate = require_discussion_moderator(request, discussion)
+    if delegate is None:
+        return JsonResponse({'raise404': True})
+    title = discussion_title_from_request(request, discussion.title)
+    if title is None:
+        return JsonResponse({'raise404': True, 'error': 'invalid_title'})
+    old_title = discussion.title
+    discussion.title = title
+    discussion.save()
+    if old_title != title:
+        log_discussion_event(discussion, delegate, 'rename', f'{delegate.name} renamed the discussion from "{old_title}" to "{title}".')
     broadcast_discussions()
     return JsonResponse({'raise404': False})
 
@@ -332,7 +379,7 @@ def ajaxDiscussionUpdateSpeakerTime(request):
         return JsonResponse({'raise404': True})
     speaker.duration_seconds = seconds_from_request(request, 'durationSeconds', speaker.duration_seconds)
     speaker.save()
-    log_discussion_event(speaker.discussion, current_delegate(request), 'speaker_time', f'{current_delegate(request).name} changed {speaker.delegate.name} speaker time to {speaker.duration_seconds} seconds.')
+    log_discussion_event(speaker.discussion, current_delegate(request), 'speaker_time', f'{current_delegate(request).name} changed {speaker.delegate.name} speaker time to {format_duration(speaker.duration_seconds)}.')
     if speaker.discussion.current_speaker_id == speaker.id:
         speaker.discussion.timer_remaining_seconds = speaker.duration_seconds
         speaker.discussion.timer_started_at = timezone.now() if speaker.discussion.timer_running else None
@@ -362,19 +409,20 @@ def ajaxDiscussionTimerAction(request):
             discussion.timer_running = False
             discussion.timer_started_at = None
             discussion.save()
-            log_discussion_event(discussion, current_delegate(request), 'timer_pause', f'{current_delegate(request).name} paused the timer for {current.delegate.name}.')
+            log_discussion_event(discussion, current_delegate(request), 'timer_pause', f'{current_delegate(request).name} paused the timer for {current.delegate.name} at {format_duration(discussion.timer_remaining_seconds)}.')
         elif action == 'resume' and current:
             discussion.timer_running = True
             discussion.timer_started_at = timezone.now()
             discussion.save()
-            log_discussion_event(discussion, current_delegate(request), 'timer_resume', f'{current_delegate(request).name} resumed the timer for {current.delegate.name}.')
+            log_discussion_event(discussion, current_delegate(request), 'timer_resume', f'{current_delegate(request).name} resumed the timer for {current.delegate.name} at {format_duration(discussion.timer_remaining_seconds)}.')
         elif action == 'restart' and current:
             discussion.timer_remaining_seconds = current.duration_seconds
             discussion.timer_running = True
             discussion.timer_started_at = timezone.now()
             discussion.save()
-            log_discussion_event(discussion, current_delegate(request), 'timer_restart', f'{current_delegate(request).name} restarted the timer for {current.delegate.name}.')
+            log_discussion_event(discussion, current_delegate(request), 'timer_restart', f'{current_delegate(request).name} restarted the timer for {current.delegate.name} to {format_duration(discussion.timer_remaining_seconds)}.')
         elif action in ('skip', 'finish') and current:
+            remaining_before_end = discussion.timer_remaining()
             current.status = DiscussionSpeaker.STATUS_SKIPPED if action == 'skip' else DiscussionSpeaker.STATUS_DONE
             current.save()
             discussion.current_speaker = None
@@ -382,7 +430,7 @@ def ajaxDiscussionTimerAction(request):
             discussion.timer_started_at = None
             discussion.timer_remaining_seconds = discussion.default_speaker_seconds
             discussion.save()
-            log_discussion_event(discussion, current_delegate(request), 'speaker_' + action, f'{current.delegate.name} was {"yielded/skipped" if action == "skip" else "marked finished"}.')
+            log_discussion_event(discussion, current_delegate(request), 'speaker_' + action, f'{current.delegate.name} was {"yielded/skipped" if action == "skip" else "marked finished"} with {format_duration(remaining_before_end)} remaining.')
         elif action == 'start':
             if not current:
                 current = discussion.next_waiting_speaker()

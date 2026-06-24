@@ -5,8 +5,13 @@ var dragulaRoom = null;
 var countdownInterval = null;
 var lastCurrentByDiscussion = {};
 var lastNextByDiscussion = {};
+var latestDiscussions = [];
+var confirmedDiscussions = [];
 
-function postDiscussion(url, payload) {
+function postDiscussion(url, payload, optimistic) {
+	if (optimistic) {
+		optimistic();
+	}
 	var data = new FormData();
 	Object.keys(payload || {}).forEach(function(key) {
 		data.append(key, payload[key]);
@@ -20,7 +25,34 @@ function postDiscussion(url, payload) {
 			throw new Error('Request failed');
 		}
 		return response.json();
+	}).then(function(data) {
+		if (data.raise404) {
+			throw new Error(data.error || 'Request failed');
+		}
+		return data;
+	}).catch(function(error) {
+		if (confirmedDiscussions.length > 0) {
+			renderDiscussions(confirmedDiscussions);
+		}
+		throw error;
 	});
+}
+
+function optimisticPatchDiscussion(discussionId, mutator) {
+	latestDiscussions = latestDiscussions.map(function(discussion) {
+		if (discussion.id !== discussionId) {
+			return discussion;
+		}
+		var copy = JSON.parse(JSON.stringify(discussion));
+		mutator(copy);
+		return copy;
+	});
+	if (pageMode === 'detail') {
+		var selected = latestDiscussions.find(function(item) { return item.id === discussion_id; });
+		renderDiscussionDetail(selected);
+	} else {
+		renderDiscussionList(latestDiscussions);
+	}
 }
 
 function formatSeconds(seconds) {
@@ -91,6 +123,8 @@ function delegateCanSpeakInDiscussion(delegate, discussion) {
 }
 
 function renderDiscussions(discussions) {
+	latestDiscussions = discussions;
+	confirmedDiscussions = JSON.parse(JSON.stringify(discussions));
 	if (pageMode === 'detail') {
 		var selected = discussions.find(function(item) { return item.id === discussion_id; });
 		renderDiscussionDetail(selected);
@@ -224,25 +258,63 @@ function renderSpeakerFocus(discussion) {
 
 		if (!discussion.speaker_timer_started) {
 			controls.appendChild(button('Start speaker', 'btn btn-primary btn-sm', function() {
-				postDiscussion('/ajax/discussionTimerAction/', {discussionId: discussion.id, action: 'start'});
+				postDiscussion('/ajax/discussionTimerAction/', {discussionId: discussion.id, action: 'start'}, function() {
+					optimisticPatchDiscussion(discussion.id, function(copy) {
+						copy.speaker_timer_started = true;
+						copy.timer_running = true;
+						copy.active = true;
+						copy.status = 'active';
+					});
+				});
 			}));
 		} else if (discussion.timer_running) {
 			controls.appendChild(button('Pause', 'btn btn-outline-primary btn-sm', function() {
-				postDiscussion('/ajax/discussionTimerAction/', {discussionId: discussion.id, action: 'pause'});
+				var remaining = parseInt((document.querySelector('.discussion-timer') || {}).dataset.remaining || discussion.timer_remaining_seconds, 10);
+				postDiscussion('/ajax/discussionTimerAction/', {discussionId: discussion.id, action: 'pause'}, function() {
+					optimisticPatchDiscussion(discussion.id, function(copy) {
+						copy.timer_running = false;
+						copy.timer_remaining_seconds = remaining;
+					});
+				});
 			}));
 		} else {
 			controls.appendChild(button('Resume', 'btn btn-primary btn-sm', function() {
-				postDiscussion('/ajax/discussionTimerAction/', {discussionId: discussion.id, action: 'resume'});
+				postDiscussion('/ajax/discussionTimerAction/', {discussionId: discussion.id, action: 'resume'}, function() {
+					optimisticPatchDiscussion(discussion.id, function(copy) {
+						copy.timer_running = true;
+					});
+				});
 			}));
 		}
 		controls.appendChild(button('Restart', 'btn btn-outline-warning btn-sm', function() {
-			postDiscussion('/ajax/discussionTimerAction/', {discussionId: discussion.id, action: 'restart'});
+			postDiscussion('/ajax/discussionTimerAction/', {discussionId: discussion.id, action: 'restart'}, function() {
+				optimisticPatchDiscussion(discussion.id, function(copy) {
+					copy.timer_running = true;
+					copy.timer_remaining_seconds = copy.current_speaker ? copy.current_speaker.duration_seconds : copy.default_speaker_seconds;
+				});
+			});
 		}));
 		controls.appendChild(button('Yield / Skip', 'btn btn-outline-danger btn-sm', function() {
-			postDiscussion('/ajax/discussionTimerAction/', {discussionId: discussion.id, action: 'skip'});
+			postDiscussion('/ajax/discussionTimerAction/', {discussionId: discussion.id, action: 'skip'}, function() {
+				optimisticPatchDiscussion(discussion.id, function(copy) {
+					copy.speaker_timer_started = false;
+					copy.timer_running = false;
+					copy.timer_remaining_seconds = copy.default_speaker_seconds;
+					copy.speakers = copy.speakers.filter(function(speaker) { return !copy.current_speaker || speaker.id !== copy.current_speaker.id; });
+					copy.current_speaker = copy.speakers.find(function(speaker) { return speaker.status === 'waiting'; }) || null;
+				});
+			});
 		}));
 		controls.appendChild(button('Finish speaker', 'btn btn-outline-success btn-sm', function() {
-			postDiscussion('/ajax/discussionTimerAction/', {discussionId: discussion.id, action: 'finish'});
+			postDiscussion('/ajax/discussionTimerAction/', {discussionId: discussion.id, action: 'finish'}, function() {
+				optimisticPatchDiscussion(discussion.id, function(copy) {
+					copy.speaker_timer_started = false;
+					copy.timer_running = false;
+					copy.timer_remaining_seconds = copy.default_speaker_seconds;
+					copy.speakers = copy.speakers.filter(function(speaker) { return !copy.current_speaker || speaker.id !== copy.current_speaker.id; });
+					copy.current_speaker = copy.speakers.find(function(speaker) { return speaker.status === 'waiting'; }) || null;
+				});
+			});
 		}));
 	}
 }
@@ -279,7 +351,7 @@ function renderParticipantControls(discussion) {
 }
 
 function renderModeratorPanel(discussion) {
-	if (!discussion.user_is_moderator || discussion.status === 'closed') {
+	if (!discussion.user_is_moderator) {
 		return;
 	}
 
@@ -295,30 +367,73 @@ function renderModeratorPanel(discussion) {
 	controls.className = 'd-flex flex-wrap gap-2 mb-3';
 	panel.appendChild(controls);
 
-	if (!discussion.active) {
+	var rename = document.createElement('input');
+	rename.type = 'text';
+	rename.value = discussion.title;
+	rename.maxLength = 200;
+	rename.className = 'form-control form-control-sm';
+	rename.style.maxWidth = '18rem';
+	controls.appendChild(rename);
+	controls.appendChild(button('Rename', 'btn btn-outline-primary btn-sm', function() {
+		var title = rename.value.trim();
+		postDiscussion('/ajax/discussionRename/', {discussionId: discussion.id, title: title}, function() {
+			optimisticPatchDiscussion(discussion.id, function(copy) {
+				copy.title = title || copy.title;
+			});
+		});
+	}));
+
+	if (discussion.status === 'closed') {
+		controls.appendChild(button('Reopen discussion', 'btn btn-success btn-sm', function() {
+			postDiscussion('/ajax/discussionReopen/', {discussionId: discussion.id}, function() {
+				optimisticPatchDiscussion(discussion.id, function(copy) {
+					copy.archived = false;
+					copy.status = copy.active ? 'active' : 'pending';
+				});
+			});
+		}));
+	} else if (!discussion.active) {
 		controls.appendChild(button('Start discussion', 'btn btn-success btn-sm', function() {
-			postDiscussion('/ajax/discussionTimerAction/', {discussionId: discussion.id, action: 'activate'});
+			postDiscussion('/ajax/discussionTimerAction/', {discussionId: discussion.id, action: 'activate'}, function() {
+				optimisticPatchDiscussion(discussion.id, function(copy) {
+					copy.active = true;
+					copy.status = 'active';
+				});
+			});
 		}));
 	}
-	var typeSelect = document.createElement('select');
-	typeSelect.className = 'form-select form-select-sm';
-	typeSelect.style.maxWidth = '12rem';
-	[['informal', 'Informal'], ['formal', 'Formal']].forEach(function(item) {
-		var option = document.createElement('option');
-		option.value = item[0];
-		option.innerText = item[1];
-		option.selected = discussion.discussion_type === item[0];
-		typeSelect.appendChild(option);
-	});
-	typeSelect.addEventListener('change', function() {
-		postDiscussion('/ajax/discussionTypeChange/', {discussionId: discussion.id, discussionType: typeSelect.value});
-	});
-	controls.appendChild(typeSelect);
-	controls.appendChild(button('Close discussion', 'btn btn-outline-secondary btn-sm', function() {
-		if (confirm('Close this discussion?')) {
-			postDiscussion('/ajax/discussionArchive/', {discussionId: discussion.id});
-		}
-	}));
+	if (discussion.status !== 'closed') {
+		var typeSelect = document.createElement('select');
+		typeSelect.className = 'form-select form-select-sm';
+		typeSelect.style.maxWidth = '12rem';
+		[['informal', 'Informal'], ['formal', 'Formal']].forEach(function(item) {
+			var option = document.createElement('option');
+			option.value = item[0];
+			option.innerText = item[1];
+			option.selected = discussion.discussion_type === item[0];
+			typeSelect.appendChild(option);
+		});
+		typeSelect.addEventListener('change', function() {
+			postDiscussion('/ajax/discussionTypeChange/', {discussionId: discussion.id, discussionType: typeSelect.value}, function() {
+				optimisticPatchDiscussion(discussion.id, function(copy) {
+					copy.discussion_type = typeSelect.value;
+				});
+			});
+		});
+		controls.appendChild(typeSelect);
+		controls.appendChild(button('Close discussion', 'btn btn-outline-secondary btn-sm', function() {
+			if (confirm('Close this discussion?')) {
+				postDiscussion('/ajax/discussionArchive/', {discussionId: discussion.id}, function() {
+					optimisticPatchDiscussion(discussion.id, function(copy) {
+						copy.archived = true;
+						copy.active = false;
+						copy.timer_running = false;
+						copy.status = 'closed';
+					});
+				});
+			}
+		}));
+	}
 
 	var moderators = document.createElement('p');
 	moderators.className = 'mb-2';
@@ -326,7 +441,7 @@ function renderModeratorPanel(discussion) {
 	moderators.innerText = 'Moderators: ' + names.join(', ');
 	panel.appendChild(moderators);
 
-	if (discussion.user_can_manage_moderators && discussion.moderator_options.length > 0) {
+	if (discussion.status !== 'closed' && discussion.user_can_manage_moderators && discussion.moderator_options.length > 0) {
 		var addRow = document.createElement('div');
 		addRow.className = 'd-flex flex-wrap gap-2 align-items-center';
 		panel.appendChild(addRow);
@@ -484,20 +599,11 @@ function renderQuestionBox(discussion) {
 		form.className = 'mb-3';
 		section.appendChild(form);
 
-		var replyContext = document.createElement('div');
-		replyContext.className = 'alert alert-secondary py-2 d-none';
-		form.appendChild(replyContext);
-
-		var parentInput = document.createElement('input');
-		parentInput.type = 'hidden';
-		parentInput.name = 'parentId';
-		form.appendChild(parentInput);
-
 		var textarea = document.createElement('textarea');
 		textarea.className = 'form-control mb-2';
 		textarea.rows = 3;
 		textarea.maxLength = 2000;
-		textarea.placeholder = 'Ask a question or add a reply';
+		textarea.placeholder = 'Ask a question';
 		form.appendChild(textarea);
 
 		var actions = document.createElement('div');
@@ -505,18 +611,7 @@ function renderQuestionBox(discussion) {
 		form.appendChild(actions);
 
 		actions.appendChild(button('Post', 'btn btn-primary btn-sm', function() {
-			postDiscussion('/ajax/discussionQuestionAdd/', {
-				discussionId: discussion.id,
-				parentId: parentInput.value,
-				text: textarea.value
-			});
-			textarea.value = '';
-			parentInput.value = '';
-		}));
-		actions.appendChild(button('Cancel reply', 'btn btn-outline-secondary btn-sm', function() {
-			parentInput.value = '';
-			replyContext.classList.add('d-none');
-			replyContext.innerText = '';
+			submitQuestion(discussion, textarea, '');
 		}));
 
 		form.addEventListener('submit', function(event) {
@@ -576,20 +671,72 @@ function renderQuestionItem(list, discussion, question, byParent, depth) {
 
 	if (discussion.status !== 'closed') {
 		actions.appendChild(button('Reply', 'btn btn-outline-secondary btn-sm', function() {
-			var form = discussionDetail.querySelector('form');
-			var parentInput = form.querySelector('input[name="parentId"]');
-			var replyContext = form.querySelector('.alert');
-			var textarea = form.querySelector('textarea');
-			parentInput.value = question.id;
-			replyContext.innerText = 'Replying to ' + question.author.name + ': ' + question.text.slice(0, 120);
-			replyContext.classList.remove('d-none');
-			textarea.focus();
+			renderInlineReplyForm(item, discussion, question);
 		}));
 	}
 
 	(byParent[question.id] || []).forEach(function(reply) {
 		renderQuestionItem(list, discussion, reply, byParent, depth + 1);
 	});
+}
+
+function submitQuestion(discussion, textarea, parentId) {
+	var text = textarea.value.trim();
+	if (!text) {
+		return;
+	}
+	postDiscussion('/ajax/discussionQuestionAdd/', {
+		discussionId: discussion.id,
+		parentId: parentId,
+		text: text
+	}, function() {
+		optimisticPatchDiscussion(discussion.id, function(copy) {
+			copy.questions.push({
+				id: 'tmp-' + Date.now(),
+				discussion_id: discussion.id,
+				author: {id: delegate_id, name: 'You', institution: '', account_role: '', account_role_label: 'You'},
+				parent_id: parentId || null,
+				text: text,
+				created_at: new Date().toISOString(),
+				reaction_counts: {},
+				user_reactions: []
+			});
+		});
+	});
+	textarea.value = '';
+}
+
+function renderInlineReplyForm(item, discussion, question) {
+	var existing = item.querySelector('.inline-reply-form');
+	if (existing) {
+		existing.querySelector('textarea').focus();
+		return;
+	}
+	var form = document.createElement('div');
+	form.className = 'inline-reply-form border rounded p-2 mt-2 bg-light';
+	item.appendChild(form);
+
+	var label = document.createElement('div');
+	label.className = 'small text-muted mb-2';
+	label.innerText = 'Replying to ' + question.author.name;
+	form.appendChild(label);
+
+	var textarea = document.createElement('textarea');
+	textarea.className = 'form-control form-control-sm mb-2';
+	textarea.rows = 2;
+	textarea.maxLength = 2000;
+	textarea.placeholder = 'Write a reply';
+	form.appendChild(textarea);
+
+	var actions = document.createElement('div');
+	actions.className = 'd-flex gap-2';
+	form.appendChild(actions);
+
+	actions.appendChild(button('Reply', 'btn btn-primary btn-sm', function() {
+		submitQuestion(discussion, textarea, question.id);
+		form.remove();
+	}));
+	textarea.focus();
 }
 
 function reactionMeta() {

@@ -14,7 +14,6 @@
       <tr>
         <th scope="col" style="width: 25%">Name</th>
         <th scope="col">Access</th>
-        <th scope="col">Position</th>
         <th scope="col">Institution</th>
         <th scope="col">Pronouns</th>
       </tr>
@@ -34,7 +33,6 @@
               {{ delegate.get_account_role_display }}
             </span>
           </td>
-          <td>{{ delegate.role }}</td>
           <td>{{ delegate.institution }}</td>
           {% if delegate.pronouns %}
             <td>{{ delegate.pronouns }}</td>
