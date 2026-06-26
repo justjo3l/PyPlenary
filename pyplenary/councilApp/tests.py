@@ -451,6 +451,49 @@ class DiscussionTests(TestCase):
         self.assertEqual(discussion.timer_remaining_seconds, 75)
         self.assertEqual(speaker.status, DiscussionSpeaker.STATUS_CURRENT)
 
+    def test_moderator_can_update_discussion_settings(self):
+        discussion = Discussion.objects.create(
+            title="Settings discussion",
+            moderator=self.moderator,
+            discussion_type=Discussion.TYPE_INFORMAL,
+            default_speaker_seconds=30,
+            timer_remaining_seconds=30,
+        )
+        rep_speaker = DiscussionSpeaker.objects.create(
+            discussion=discussion,
+            delegate=self.rep,
+            index=1,
+            duration_seconds=30,
+        )
+        non_rep_speaker = DiscussionSpeaker.objects.create(
+            discussion=discussion,
+            delegate=self.non_rep,
+            index=2,
+            duration_seconds=30,
+        )
+
+        response = self.client.post(
+            "/ajax/discussionSettings/",
+            {
+                "discussionId": discussion.id,
+                "title": "Updated settings",
+                "discussionType": Discussion.TYPE_FORMAL,
+                "defaultSpeakerSeconds": 120,
+                "applyDefaultToQueue": "true",
+            },
+        )
+
+        discussion.refresh_from_db()
+        rep_speaker.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(discussion.title, "Updated settings")
+        self.assertEqual(discussion.discussion_type, Discussion.TYPE_FORMAL)
+        self.assertEqual(discussion.default_speaker_seconds, 120)
+        self.assertEqual(discussion.timer_remaining_seconds, 120)
+        self.assertEqual(rep_speaker.duration_seconds, 120)
+        self.assertFalse(DiscussionSpeaker.objects.filter(id=non_rep_speaker.id).exists())
+        self.assertTrue(DiscussionEvent.objects.filter(event_type="settings_update").exists())
+
     def test_discussion_question_can_be_posted_and_replied_to(self):
         discussion = Discussion.objects.create(
             title="Questions",

@@ -281,6 +281,79 @@ def ajaxDiscussionTypeChange(request):
 
 @login_required
 @require_POST
+def ajaxDiscussionSettings(request):
+    discussion = discussion_or_404(request.POST.get('discussionId'), include_archived=True)
+    delegate = require_discussion_moderator(request, discussion)
+    if delegate is None:
+        return JsonResponse({'raise404': True})
+
+    title = discussion_title_from_request(request, discussion.title)
+    if title is None:
+        return JsonResponse({'raise404': True, 'error': 'invalid_title'})
+
+    discussion_type = request.POST.get('discussionType')
+    if discussion_type not in [Discussion.TYPE_INFORMAL, Discussion.TYPE_FORMAL]:
+        return JsonResponse({'raise404': True, 'error': 'invalid_type'})
+
+    default_seconds = seconds_from_request(request, 'defaultSpeakerSeconds', discussion.default_speaker_seconds)
+    apply_default_to_queue = request.POST.get('applyDefaultToQueue') == 'true'
+
+    with transaction.atomic():
+        discussion = Discussion.objects.select_for_update().get(id=discussion.id)
+        old_title = discussion.title
+        old_type = discussion.discussion_type
+        old_default_seconds = discussion.default_speaker_seconds
+
+        discussion.title = title
+        discussion.discussion_type = discussion_type
+        discussion.default_speaker_seconds = default_seconds
+        if old_default_seconds != default_seconds and discussion.current_speaker_id is None:
+            discussion.timer_remaining_seconds = default_seconds
+        discussion.save()
+
+        updated_speakers_count = 0
+        if apply_default_to_queue:
+            updated_speakers_count = DiscussionSpeaker.objects.filter(
+                discussion=discussion,
+                status=DiscussionSpeaker.STATUS_WAITING,
+            ).update(duration_seconds=default_seconds)
+
+        removed_count = 0
+        if discussion_type == Discussion.TYPE_FORMAL:
+            invalid_speakers = [
+                speaker for speaker in DiscussionSpeaker.objects.filter(discussion=discussion, status__in=[DiscussionSpeaker.STATUS_WAITING, DiscussionSpeaker.STATUS_CURRENT]).select_related('delegate')
+                if not discussion.delegate_can_speak(speaker.delegate)
+            ]
+            removed_count = len(invalid_speakers)
+            if discussion.current_speaker_id in [speaker.id for speaker in invalid_speakers]:
+                discussion.current_speaker = None
+                discussion.timer_running = False
+                discussion.timer_started_at = None
+                discussion.timer_remaining_seconds = discussion.default_speaker_seconds
+                discussion.save()
+            DiscussionSpeaker.objects.filter(id__in=[speaker.id for speaker in invalid_speakers]).delete()
+
+        changes = []
+        if old_title != discussion.title:
+            changes.append(f'title from "{old_title}" to "{discussion.title}"')
+        if old_type != discussion.discussion_type:
+            changes.append(f'type from {old_type} to {discussion.discussion_type}')
+        if old_default_seconds != discussion.default_speaker_seconds:
+            changes.append(f'default speaker time from {format_duration(old_default_seconds)} to {format_duration(discussion.default_speaker_seconds)}')
+        if updated_speakers_count:
+            changes.append(f'applied the default time to {updated_speakers_count} queued speaker{"s" if updated_speakers_count != 1 else ""}')
+        if removed_count:
+            changes.append(f'removed {removed_count} ineligible speaker queue entr{"y" if removed_count == 1 else "ies"}')
+
+        if changes:
+            log_discussion_event(discussion, delegate, 'settings_update', f'{delegate.name} changed discussion settings: {", ".join(changes)}.')
+
+    broadcast_discussions()
+    return JsonResponse({'raise404': False})
+
+
+@login_required
+@require_POST
 def ajaxDiscussionAddModerator(request):
     discussion = discussion_or_404(request.POST.get('discussionId'))
     if require_discussion_moderator(request, discussion) is None:

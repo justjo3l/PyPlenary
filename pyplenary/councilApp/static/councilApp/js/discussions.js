@@ -79,7 +79,8 @@ function notifySpeaker(title, body) {
 }
 
 function renderDelegate(delegate) {
-	return delegate.name + ' (' + delegate.institution + ')';
+	var speakerNumber = delegate.speakerNum ? '#' + delegate.speakerNum + ' ' : '';
+	return speakerNumber + delegate.name + ' (' + delegate.institution + ')';
 }
 
 function roleBadge(delegate) {
@@ -170,7 +171,7 @@ function renderDiscussionList(discussions) {
 
 	var meta = document.createElement('div');
 	meta.className = 'small text-muted mt-1';
-	meta.innerText = 'Moderator: ' + discussion.moderator.name + ' (' + discussion.moderator.account_role_label + ') · People in discussion: ' + discussion.participant_count;
+	meta.innerText = 'Moderator: ' + renderDelegate(discussion.moderator) + ' (' + discussion.moderator.account_role_label + ') · People in discussion: ' + discussion.participant_count;
 	link.appendChild(meta);
 	});
 }
@@ -213,7 +214,7 @@ function renderDiscussionDetail(discussion) {
 
 	var meta = document.createElement('p');
 	meta.className = 'text-muted mb-0';
-	meta.innerText = 'Original moderator: ' + discussion.moderator.name + ' (' + discussion.moderator.account_role_label + ') · People in discussion: ' + discussion.participant_count;
+	meta.innerText = 'Original moderator: ' + renderDelegate(discussion.moderator) + ' (' + discussion.moderator.account_role_label + ') · People in discussion: ' + discussion.participant_count + ' · Default speaker time: ' + formatSeconds(discussion.default_speaker_seconds);
 	header.appendChild(meta);
 
 	renderSpeakerFocus(discussion);
@@ -368,20 +369,8 @@ function renderModeratorPanel(discussion) {
 	controls.className = 'd-flex flex-wrap gap-2 mb-3';
 	panel.appendChild(controls);
 
-	var rename = document.createElement('input');
-	rename.type = 'text';
-	rename.value = discussion.title;
-	rename.maxLength = 200;
-	rename.className = 'form-control form-control-sm';
-	rename.style.maxWidth = '18rem';
-	controls.appendChild(rename);
-	controls.appendChild(button('Rename', 'btn btn-outline-primary btn-sm', function() {
-		var title = rename.value.trim();
-		postDiscussion('/ajax/discussionRename/', {discussionId: discussion.id, title: title}, function() {
-			optimisticPatchDiscussion(discussion.id, function(copy) {
-				copy.title = title || copy.title;
-			});
-		});
+	controls.appendChild(button('Edit Discussion Settings', 'btn btn-outline-primary btn-sm', function() {
+		renderDiscussionSettingsModal(discussion);
 	}));
 
 	if (discussion.status === 'closed') {
@@ -404,24 +393,6 @@ function renderModeratorPanel(discussion) {
 		}));
 	}
 	if (discussion.status !== 'closed') {
-		var typeSelect = document.createElement('select');
-		typeSelect.className = 'form-select form-select-sm';
-		typeSelect.style.maxWidth = '12rem';
-		[['informal', 'Informal'], ['formal', 'Formal']].forEach(function(item) {
-			var option = document.createElement('option');
-			option.value = item[0];
-			option.innerText = item[1];
-			option.selected = discussion.discussion_type === item[0];
-			typeSelect.appendChild(option);
-		});
-		typeSelect.addEventListener('change', function() {
-			postDiscussion('/ajax/discussionTypeChange/', {discussionId: discussion.id, discussionType: typeSelect.value}, function() {
-				optimisticPatchDiscussion(discussion.id, function(copy) {
-					copy.discussion_type = typeSelect.value;
-				});
-			});
-		});
-		controls.appendChild(typeSelect);
 		controls.appendChild(button('Close discussion', 'btn btn-outline-secondary btn-sm', function() {
 			if (confirm('Close this discussion?')) {
 				postDiscussion('/ajax/discussionArchive/', {discussionId: discussion.id}, function() {
@@ -468,6 +439,210 @@ function renderModeratorPanel(discussion) {
 	logLink.className = 'btn btn-outline-dark btn-sm';
 	logLink.innerText = 'Logs';
 	panel.appendChild(logLink);
+}
+
+function renderDiscussionSettingsModal(discussion) {
+	var existing = document.getElementById('discussion-settings-modal');
+	if (existing) {
+		existing.remove();
+	}
+
+	var modal = document.createElement('div');
+	modal.className = 'modal fade';
+	modal.id = 'discussion-settings-modal';
+	modal.tabIndex = -1;
+	document.body.appendChild(modal);
+
+	var dialog = document.createElement('div');
+	dialog.className = 'modal-dialog modal-dialog-centered';
+	modal.appendChild(dialog);
+
+	var content = document.createElement('div');
+	content.className = 'modal-content';
+	dialog.appendChild(content);
+
+	var header = document.createElement('div');
+	header.className = 'modal-header';
+	content.appendChild(header);
+
+	var title = document.createElement('h5');
+	title.className = 'modal-title';
+	title.innerText = 'Edit Discussion Settings';
+	header.appendChild(title);
+
+	var close = document.createElement('button');
+	close.type = 'button';
+	close.className = 'btn-close';
+	close.setAttribute('data-bs-dismiss', 'modal');
+	close.setAttribute('aria-label', 'Close');
+	header.appendChild(close);
+
+	var body = document.createElement('div');
+	body.className = 'modal-body';
+	content.appendChild(body);
+
+	var titleLabel = document.createElement('label');
+	titleLabel.className = 'form-label';
+	titleLabel.innerText = 'Discussion name';
+	body.appendChild(titleLabel);
+
+	var titleInput = document.createElement('input');
+	titleInput.type = 'text';
+	titleInput.value = discussion.title;
+	titleInput.maxLength = 200;
+	titleInput.className = 'form-control mb-3';
+	body.appendChild(titleInput);
+
+	var typeLabel = document.createElement('label');
+	typeLabel.className = 'form-label';
+	typeLabel.innerText = 'Discussion type';
+	body.appendChild(typeLabel);
+
+	var typeSelect = document.createElement('select');
+	typeSelect.className = 'form-select mb-3';
+	[['informal', 'Informal'], ['formal', 'Formal']].forEach(function(item) {
+		var option = document.createElement('option');
+		option.value = item[0];
+		option.innerText = item[1];
+		option.selected = discussion.discussion_type === item[0];
+		typeSelect.appendChild(option);
+	});
+	body.appendChild(typeSelect);
+
+	var secondsLabel = document.createElement('label');
+	secondsLabel.className = 'form-label';
+	secondsLabel.innerText = 'Default speaker time';
+	body.appendChild(secondsLabel);
+
+	var secondsInput = document.createElement('input');
+	secondsInput.type = 'number';
+	secondsInput.min = 15;
+	secondsInput.max = 900;
+	secondsInput.step = 15;
+	secondsInput.value = discussion.default_speaker_seconds;
+	secondsInput.className = 'form-control mb-2';
+	body.appendChild(secondsInput);
+
+	var applyWrap = document.createElement('div');
+	applyWrap.className = 'form-check mb-3';
+	body.appendChild(applyWrap);
+
+	var applyCheckbox = document.createElement('input');
+	applyCheckbox.type = 'checkbox';
+	applyCheckbox.className = 'form-check-input';
+	applyCheckbox.id = 'discussion-settings-apply-default';
+	applyWrap.appendChild(applyCheckbox);
+
+	var applyLabel = document.createElement('label');
+	applyLabel.className = 'form-check-label';
+	applyLabel.htmlFor = 'discussion-settings-apply-default';
+	applyLabel.innerText = 'Apply this default time to speakers currently waiting in the queue';
+	applyWrap.appendChild(applyLabel);
+
+	var warning = document.createElement('div');
+	warning.className = 'alert alert-warning d-none';
+	warning.innerText = 'Are you sure you want to save these discussion settings changes? Click the save button again to confirm.';
+	body.appendChild(warning);
+
+	var footer = document.createElement('div');
+	footer.className = 'modal-footer';
+	content.appendChild(footer);
+
+	var cancelButton = document.createElement('button');
+	cancelButton.type = 'button';
+	cancelButton.className = 'btn btn-outline-secondary';
+	cancelButton.setAttribute('data-bs-dismiss', 'modal');
+	cancelButton.innerText = 'Cancel';
+	footer.appendChild(cancelButton);
+
+	var saveButton = document.createElement('button');
+	saveButton.type = 'button';
+	saveButton.className = 'btn btn-primary';
+	saveButton.innerText = 'Save Settings';
+	footer.appendChild(saveButton);
+
+	var awaitingConfirmation = false;
+	[titleInput, typeSelect, secondsInput, applyCheckbox].forEach(function(input) {
+		input.addEventListener('input', function() {
+			awaitingConfirmation = false;
+			warning.classList.add('d-none');
+			saveButton.innerText = 'Save Settings';
+		});
+		input.addEventListener('change', function() {
+			awaitingConfirmation = false;
+			warning.classList.add('d-none');
+			saveButton.innerText = 'Save Settings';
+		});
+	});
+
+	saveButton.addEventListener('click', function() {
+		var nextTitle = titleInput.value.trim();
+		var nextType = typeSelect.value;
+		var nextSeconds = Math.max(15, Math.min(900, parseInt(secondsInput.value || discussion.default_speaker_seconds, 10)));
+		secondsInput.value = nextSeconds;
+
+		if (!nextTitle) {
+			warning.className = 'alert alert-danger';
+			warning.innerText = 'Discussion name is required.';
+			awaitingConfirmation = false;
+			saveButton.innerText = 'Save Settings';
+			return;
+		}
+
+		if (!awaitingConfirmation) {
+			awaitingConfirmation = true;
+			warning.className = 'alert alert-warning';
+			warning.innerText = 'Are you sure you want to save these discussion settings changes? Click the save button again to confirm.';
+			saveButton.innerText = 'Confirm and Save Settings';
+			return;
+		}
+
+		postDiscussion('/ajax/discussionSettings/', {
+			discussionId: discussion.id,
+			title: nextTitle,
+			discussionType: nextType,
+			defaultSpeakerSeconds: nextSeconds,
+			applyDefaultToQueue: applyCheckbox.checked ? 'true' : 'false'
+		}, function() {
+			optimisticPatchDiscussion(discussion.id, function(copy) {
+				copy.title = nextTitle;
+				copy.discussion_type = nextType;
+				copy.default_speaker_seconds = nextSeconds;
+				if (!copy.current_speaker) {
+					copy.timer_remaining_seconds = nextSeconds;
+				}
+				if (applyCheckbox.checked) {
+					copy.speakers.forEach(function(speaker) {
+						if (speaker.status === 'waiting') {
+							speaker.duration_seconds = nextSeconds;
+						}
+					});
+				}
+			});
+		}).then(function() {
+			if (window.bootstrap) {
+				var instance = bootstrap.Modal.getInstance ? bootstrap.Modal.getInstance(modal) : null;
+				if (instance) {
+					instance.hide();
+				} else {
+					modal.remove();
+				}
+			} else {
+				modal.remove();
+			}
+		});
+	});
+
+	modal.addEventListener('hidden.bs.modal', function() {
+		modal.remove();
+	});
+
+	if (window.bootstrap) {
+		new bootstrap.Modal(modal).show();
+	} else {
+		modal.classList.add('show');
+		modal.style.display = 'block';
+	}
 }
 
 function renderParticipants(discussion) {
@@ -656,7 +831,7 @@ function renderQuestionItem(list, discussion, question, byParent, depth) {
 
 	var meta = document.createElement('div');
 	meta.className = 'small text-muted mb-1';
-	meta.innerText = question.author.name + ' · ' + question.author.account_role_label + ' · ' + new Date(question.created_at).toLocaleString();
+	meta.innerText = renderDelegate(question.author) + ' · ' + question.author.account_role_label + ' · ' + new Date(question.created_at).toLocaleString();
 	item.appendChild(meta);
 
 	var text = document.createElement('div');
@@ -711,7 +886,7 @@ function submitQuestion(discussion, textarea, parentId) {
 			copy.questions.push({
 				id: 'tmp-' + Date.now(),
 				discussion_id: discussion.id,
-				author: {id: delegate_id, name: 'You', institution: '', account_role: '', account_role_label: 'You'},
+				author: {id: delegate_id, name: 'You', institution: '', speakerNum: '', account_role: '', account_role_label: 'You'},
 				parent_id: parentId || null,
 				text: text,
 				created_at: new Date().toISOString(),

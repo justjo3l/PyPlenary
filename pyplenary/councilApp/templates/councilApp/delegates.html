@@ -12,8 +12,9 @@
   <table class="table table-hover" id="delegateTable">
     <thead class="thead-dark">
       <tr>
+        <th scope="col">Speaker #</th>
         <th scope="col" style="width: 25%">Name</th>
-        <th scope="col">Access</th>
+        <th scope="col">Role</th>
         <th scope="col">Institution</th>
         <th scope="col">Pronouns</th>
       </tr>
@@ -27,12 +28,9 @@
         {% else %}
           <tr>
         {% endif %}
+          <td>{{ delegate.speakerNum }}</td>
           <td>{{ delegate.name }}</td>
-          <td>
-            <span class="badge {% if delegate.account_role == 'viewer' %}bg-secondary{% elif delegate.account_role == 'delegate' %}bg-info text-dark{% elif delegate.account_role == 'representative' %}bg-primary{% elif delegate.account_role == 'moderator' %}bg-success{% else %}bg-danger{% endif %}">
-              {{ delegate.get_account_role_display }}
-            </span>
-          </td>
+          <td>{{ delegate.role|default:"-" }}</td>
           <td>{{ delegate.institution }}</td>
           {% if delegate.pronouns %}
             <td>{{ delegate.pronouns }}</td>
