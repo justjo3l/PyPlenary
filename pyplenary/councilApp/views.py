@@ -889,7 +889,7 @@ def pollInfo(request, pollId):
     except:
         raise Http404()
 
-    allVotes = Vote.objects.filter(poll=poll)
+    allVotes = Vote.objects.filter(poll=poll).select_related('voter__institution', 'proxy__holder__institution')
     pollResults = calculateResults(poll)
     superadmin = True if request.user.is_authenticated and request.user.delegate.is_site_admin else False
 

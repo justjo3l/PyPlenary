@@ -72,7 +72,7 @@
             <p>Names hidden</p>
           {% else %}
             {% for vote in allVotes %}
-              <p>{{vote.voter.name}} ({{vote.voter.institution.shortName}})</p>
+              <p>{{vote.display_delegate.name}} ({{vote.display_delegate.institution.shortName}})</p>
             {% endfor %}
           {% endif %}
         </div>
@@ -90,7 +90,7 @@
           {% else %}
             {% for vote in allVotes %}
               {% if vote.vote == 1 %}
-                <p>{{vote.voter.name}} ({{vote.voter.institution.shortName}})</p>
+                <p>{{vote.display_delegate.name}} ({{vote.display_delegate.institution.shortName}})</p>
               {% endif %}
             {% endfor %}
           {% endif %}
@@ -109,7 +109,7 @@
           {% else %}
             {% for vote in allVotes %}
               {% if vote.vote == 2 %}
-                <p>{{vote.voter.name}} ({{vote.voter.institution.shortName}})</p>
+                <p>{{vote.display_delegate.name}} ({{vote.display_delegate.institution.shortName}})</p>
               {% endif %}
             {% endfor %}
           {% endif %}
@@ -128,7 +128,7 @@
           {% else %}
             {% for vote in allVotes %}
               {% if vote.vote == 0 %}
-                <p>{{vote.voter.name}} ({{vote.voter.institution.shortName}})</p>
+                <p>{{vote.display_delegate.name}} ({{vote.display_delegate.institution.shortName}})</p>
               {% endif %}
             {% endfor %}
           {% endif %}

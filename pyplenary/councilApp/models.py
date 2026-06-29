@@ -151,6 +151,10 @@ class Vote(models.Model):
         output = f'{self.poll.title} - {self.voter.institution} - {self.vote}'
         return output
 
+    @property
+    def display_delegate(self):
+        return self.proxy.holder if self.proxy_id else self.voter
+
 class ResetToken(models.Model):
     id = models.AutoField(primary_key=True)
     token = models.CharField(max_length=100, null=True)

@@ -4,7 +4,7 @@ from django.db.models import Q
 from django.test import TestCase, override_settings
 from unittest.mock import Mock, patch
 
-from .models import AgendaDay, AgendaItem, Delegate, Discussion, DiscussionEvent, DiscussionParticipant, DiscussionQuestion, DiscussionQuestionReaction, DiscussionSpeaker, Institution, PendingRego, Poll, Vote
+from .models import AgendaDay, AgendaItem, Delegate, Discussion, DiscussionEvent, DiscussionParticipant, DiscussionQuestion, DiscussionQuestionReaction, DiscussionSpeaker, Institution, PendingRego, Poll, Proxy, Vote
 
 
 class ResendEmailBackendTests(TestCase):
@@ -235,6 +235,28 @@ class MutatingEndpointMethodTests(TestCase):
         self.assertEqual(vote.voter, self.delegate)
         self.assertEqual(vote.vote, 1)
         self.assertEqual(vote.voteWeight, self.institution.votesWeight)
+
+    def test_proxy_vote_display_delegate_is_holder(self):
+        holder_user = User.objects.create_user(
+            username="holder@example.com",
+            email="holder@example.com",
+            password="password",
+        )
+        holder = Delegate.objects.create(
+            authClone=holder_user,
+            name="Proxy Holder",
+            email="holder@example.com",
+            account_role=Delegate.ROLE_REPRESENTATIVE,
+            institution=self.institution,
+            role="Delegate",
+            speakerNum=2,
+        )
+        poll = Poll.objects.create(title="Motion", active=True)
+        proxy = Proxy.objects.create(voter=self.delegate, holder=holder)
+
+        vote = Vote.objects.create(poll=poll, voter=self.delegate, proxy=proxy, vote=1)
+
+        self.assertEqual(vote.display_delegate, holder)
 
 
 class DiscussionTests(TestCase):

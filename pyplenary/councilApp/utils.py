@@ -111,11 +111,11 @@ def generateSpeakerListCSV(request):
     writer.writerow(['Motion', 'Time concluded', 'Result', 'Votes for', 'Votes against', 'Abstentions', 'All votes for', 'All votes against', 'All abstentions'])
     resultDict = {0:'N/A',1:'Carried',2:'Lost',3:'Tied'}
     for poll in sorted(Poll.objects.all(), key = lambda x:x.endTime):
-        allVotes = Vote.objects.filter(poll=poll)
+        allVotes = Vote.objects.filter(poll=poll).select_related('voter__institution', 'proxy__holder__institution')
         toWrite = [poll.title, poll.endTime, resultDict[poll.outcome], poll.yesVotes, poll.noVotes, poll.abstainVotes]
-        toWrite.append("; ".join([f'{vote.voter.name} ({vote.voter.institution.shortName})' for vote in allVotes if vote.vote == 1]))
-        toWrite.append("; ".join([f'{vote.voter.name} ({vote.voter.institution.shortName})' for vote in allVotes if vote.vote == 2]))
-        toWrite.append("; ".join([f'{vote.voter.name} ({vote.voter.institution.shortName})' for vote in allVotes if vote.vote == 0]))
+        toWrite.append("; ".join([f'{vote.display_delegate.name} ({vote.display_delegate.institution.shortName})' for vote in allVotes if vote.vote == 1]))
+        toWrite.append("; ".join([f'{vote.display_delegate.name} ({vote.display_delegate.institution.shortName})' for vote in allVotes if vote.vote == 2]))
+        toWrite.append("; ".join([f'{vote.display_delegate.name} ({vote.display_delegate.institution.shortName})' for vote in allVotes if vote.vote == 0]))
         writer.writerow(toWrite)
 
     agendaIO = StringIO()
