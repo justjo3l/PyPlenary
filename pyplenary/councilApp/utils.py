@@ -57,12 +57,19 @@ def calculateResults(poll):
 def generateToken():
     return secrets.token_urlsafe(48)
 
+def delegate_label(delegate):
+    if delegate is None:
+        return ''
+    institution = getattr(delegate, 'institution', None)
+    institution_name = institution.shortName if institution else '-'
+    return f'{delegate.name} ({institution_name})'
+
 def generateSpeakerListCSV(request):
     speakersIO = StringIO()
     writer = csv.writer(speakersIO)
     writer.writerow(['Speaker #', 'Name', 'Role', 'Institution', 'Pronouns'])
-    for delegate in sorted(Delegate.objects.all(), key = lambda x:x.speakerNum):
-        writer.writerow([delegate.speakerNum, delegate.name, delegate.role, delegate.institution.shortName, delegate.pronouns])
+    for delegate in Delegate.objects.select_related('institution').order_by('speakerNum', 'id'):
+        writer.writerow([delegate.speakerNum, delegate.name, delegate.role, delegate.institution.shortName if delegate.institution else '', delegate.pronouns])
 
     discussionsIO = StringIO()
     writer = csv.writer(discussionsIO)
@@ -110,12 +117,12 @@ def generateSpeakerListCSV(request):
     writer = csv.writer(pollsIO)
     writer.writerow(['Motion', 'Time concluded', 'Result', 'Votes for', 'Votes against', 'Abstentions', 'All votes for', 'All votes against', 'All abstentions'])
     resultDict = {0:'N/A',1:'Carried',2:'Lost',3:'Tied'}
-    for poll in sorted(Poll.objects.all(), key = lambda x:x.endTime):
+    for poll in Poll.objects.all().order_by('endTime', 'id'):
         allVotes = Vote.objects.filter(poll=poll).select_related('voter__institution', 'proxy__holder__institution')
         toWrite = [poll.title, poll.endTime, resultDict[poll.outcome], poll.yesVotes, poll.noVotes, poll.abstainVotes]
-        toWrite.append("; ".join([f'{vote.display_delegate.name} ({vote.display_delegate.institution.shortName})' for vote in allVotes if vote.vote == 1]))
-        toWrite.append("; ".join([f'{vote.display_delegate.name} ({vote.display_delegate.institution.shortName})' for vote in allVotes if vote.vote == 2]))
-        toWrite.append("; ".join([f'{vote.display_delegate.name} ({vote.display_delegate.institution.shortName})' for vote in allVotes if vote.vote == 0]))
+        toWrite.append("; ".join([delegate_label(vote.display_delegate) for vote in allVotes if vote.vote == 1]))
+        toWrite.append("; ".join([delegate_label(vote.display_delegate) for vote in allVotes if vote.vote == 2]))
+        toWrite.append("; ".join([delegate_label(vote.display_delegate) for vote in allVotes if vote.vote == 0]))
         writer.writerow(toWrite)
 
     agendaIO = StringIO()

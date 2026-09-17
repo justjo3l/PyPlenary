@@ -236,6 +236,15 @@ class MutatingEndpointMethodTests(TestCase):
         self.assertEqual(vote.vote, 1)
         self.assertEqual(vote.voteWeight, self.institution.votesWeight)
 
+    def test_data_download_handles_active_and_closed_polls(self):
+        Poll.objects.create(title="Active motion", active=True)
+        Poll.objects.create(title="Closed motion", active=False)
+
+        response = self.client.get("/app_admin/download_data/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/zip")
+
     def test_proxy_vote_display_delegate_is_holder(self):
         holder_user = User.objects.create_user(
             username="holder@example.com",
