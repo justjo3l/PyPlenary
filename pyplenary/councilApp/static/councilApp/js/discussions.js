@@ -7,6 +7,7 @@ var lastCurrentByDiscussion = {};
 var lastNextByDiscussion = {};
 var latestDiscussions = [];
 var confirmedDiscussions = [];
+var qnaDrafts = {main: '', replies: {}, edits: {}};
 
 function postDiscussion(url, payload, optimistic) {
 	if (optimistic) {
@@ -38,6 +39,83 @@ function postDiscussion(url, payload, optimistic) {
 	});
 }
 
+function captureQuestionDrafts() {
+	if (pageMode !== 'detail' || !discussionDetail) {
+		return;
+	}
+	var main = discussionDetail.querySelector('.qa-main-textarea');
+	qnaDrafts.main = main ? main.value : qnaDrafts.main;
+
+	qnaDrafts.replies = {};
+	discussionDetail.querySelectorAll('.inline-reply-form').forEach(function(form) {
+		var questionItem = form.closest('.question-item');
+		var textarea = form.querySelector('textarea');
+		if (questionItem && textarea && textarea.value) {
+			qnaDrafts.replies[questionItem.dataset.questionId] = textarea.value;
+		}
+	});
+
+	qnaDrafts.edits = {};
+	discussionDetail.querySelectorAll('.inline-edit-form').forEach(function(form) {
+		var questionItem = form.closest('.question-item');
+		var textarea = form.querySelector('textarea');
+		if (questionItem && textarea && textarea.value) {
+			qnaDrafts.edits[questionItem.dataset.questionId] = textarea.value;
+		}
+	});
+}
+
+function questionElementById(questionId) {
+	return Array.from(discussionDetail.querySelectorAll('.question-item')).find(function(item) {
+		return String(item.dataset.questionId) === String(questionId);
+	});
+}
+
+function restoreQuestionDrafts(discussion) {
+	if (pageMode !== 'detail' || !discussionDetail || !discussion) {
+		return;
+	}
+	var main = discussionDetail.querySelector('.qa-main-textarea');
+	if (main && qnaDrafts.main) {
+		main.value = qnaDrafts.main;
+	}
+
+	Object.keys(qnaDrafts.replies || {}).forEach(function(questionId) {
+		var value = qnaDrafts.replies[questionId];
+		if (!value) {
+			return;
+		}
+		var question = (discussion.questions || []).find(function(item) { return String(item.id) === String(questionId); });
+		var questionItem = questionElementById(questionId);
+		if (!question || !questionItem) {
+			return;
+		}
+		renderInlineReplyForm(questionItem, discussion, question);
+		var textarea = questionItem.querySelector('.inline-reply-form textarea');
+		if (textarea) {
+			textarea.value = value;
+		}
+	});
+
+	Object.keys(qnaDrafts.edits || {}).forEach(function(questionId) {
+		var value = qnaDrafts.edits[questionId];
+		if (!value) {
+			return;
+		}
+		var question = (discussion.questions || []).find(function(item) { return String(item.id) === String(questionId); });
+		var questionItem = questionElementById(questionId);
+		var textElement = questionItem ? questionItem.querySelector('.question-text') : null;
+		if (!question || !questionItem || !textElement) {
+			return;
+		}
+		renderInlineEditForm(questionItem, discussion, question, textElement);
+		var textarea = questionItem.querySelector('.inline-edit-form textarea');
+		if (textarea) {
+			textarea.value = value;
+		}
+	});
+}
+
 function optimisticPatchDiscussion(discussionId, mutator) {
 	latestDiscussions = latestDiscussions.map(function(discussion) {
 		if (discussion.id !== discussionId) {
@@ -48,8 +126,10 @@ function optimisticPatchDiscussion(discussionId, mutator) {
 		return copy;
 	});
 	if (pageMode === 'detail') {
+		captureQuestionDrafts();
 		var selected = latestDiscussions.find(function(item) { return item.id === discussion_id; });
 		renderDiscussionDetail(selected);
+		restoreQuestionDrafts(selected);
 	} else {
 		renderDiscussionList(latestDiscussions);
 	}
@@ -128,8 +208,10 @@ function renderDiscussions(discussions) {
 	latestDiscussions = discussions;
 	confirmedDiscussions = JSON.parse(JSON.stringify(discussions));
 	if (pageMode === 'detail') {
+		captureQuestionDrafts();
 		var selected = discussions.find(function(item) { return item.id === discussion_id; });
 		renderDiscussionDetail(selected);
+		restoreQuestionDrafts(selected);
 	} else {
 		renderDiscussionList(discussions);
 	}
@@ -776,7 +858,7 @@ function renderQuestionBox(discussion) {
 		section.appendChild(form);
 
 		var textarea = document.createElement('textarea');
-		textarea.className = 'form-control mb-2';
+		textarea.className = 'form-control mb-2 qa-main-textarea';
 		textarea.rows = 3;
 		textarea.maxLength = 2000;
 		textarea.placeholder = 'Ask a question';
@@ -823,7 +905,8 @@ function renderQuestionBox(discussion) {
 
 function renderQuestionItem(list, discussion, question, byParent, depth) {
 	var item = document.createElement('div');
-	item.className = 'list-group-item';
+	item.className = 'list-group-item question-item';
+	item.dataset.questionId = question.id;
 	if (depth > 0) {
 		item.style.marginLeft = Math.min(depth, 3) * 1.5 + 'rem';
 	}
@@ -835,6 +918,7 @@ function renderQuestionItem(list, discussion, question, byParent, depth) {
 	item.appendChild(meta);
 
 	var text = document.createElement('div');
+	text.className = 'question-text';
 	text.innerText = question.text;
 	item.appendChild(text);
 
@@ -877,6 +961,12 @@ function submitQuestion(discussion, textarea, parentId) {
 	if (!text) {
 		return;
 	}
+	if (parentId) {
+		delete qnaDrafts.replies[parentId];
+	} else {
+		qnaDrafts.main = '';
+	}
+	textarea.value = '';
 	postDiscussion('/ajax/discussionQuestionAdd/', {
 		discussionId: discussion.id,
 		parentId: parentId,
@@ -895,7 +985,6 @@ function submitQuestion(discussion, textarea, parentId) {
 			});
 		});
 	});
-	textarea.value = '';
 }
 
 function renderInlineReplyForm(item, discussion, question) {
@@ -922,6 +1011,7 @@ function renderInlineReplyForm(item, discussion, question) {
 	header.appendChild(label);
 
 	header.appendChild(button('×', 'btn btn-sm btn-outline-secondary', function() {
+		delete qnaDrafts.replies[question.id];
 		form.remove();
 	}));
 
@@ -938,6 +1028,7 @@ function renderInlineReplyForm(item, discussion, question) {
 
 	actions.appendChild(button('Reply', 'btn btn-primary btn-sm', function() {
 		submitQuestion(discussion, textarea, question.id);
+		delete qnaDrafts.replies[question.id];
 		form.remove();
 	}));
 	textarea.focus();
@@ -962,6 +1053,7 @@ function renderInlineEditForm(item, discussion, question, textElement) {
 	header.appendChild(label);
 
 	header.appendChild(button('×', 'btn btn-sm btn-outline-secondary', function() {
+		delete qnaDrafts.edits[question.id];
 		form.remove();
 	}));
 
@@ -969,7 +1061,7 @@ function renderInlineEditForm(item, discussion, question, textElement) {
 	textarea.className = 'form-control form-control-sm mb-2';
 	textarea.rows = 2;
 	textarea.maxLength = 2000;
-	textarea.value = question.text;
+	textarea.value = qnaDrafts.edits[question.id] || question.text;
 	form.appendChild(textarea);
 
 	var actions = document.createElement('div');
@@ -981,6 +1073,7 @@ function renderInlineEditForm(item, discussion, question, textElement) {
 		if (!nextText) {
 			return;
 		}
+		delete qnaDrafts.edits[question.id];
 		postDiscussion('/ajax/discussionQuestionEdit/', {questionId: question.id, text: nextText}, function() {
 			optimisticPatchDiscussion(discussion.id, function(copy) {
 				copy.questions.forEach(function(item) {
